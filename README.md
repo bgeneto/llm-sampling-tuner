@@ -12,7 +12,7 @@ Every model ships with recommended sampling parameters — `temperature`, `top_p
 
 On top of that, published benchmarks (MMLU, HumanEval, etc.) are increasingly unreliable. Models are trained on the test sets. Scores go up while real-world performance stays flat. There is no benchmark for *"Can this model plan a system architecture without going off the rails at temperature 0.6?"*
 
-**This tool fills that gap.** It runs your actual model, on your actual hardware, at your actual quantization level, against novel prompts that no model has been trained on — and tells you the exact sampling parameters that produce the best results for your use case.
+**This tool fills that gap.** It runs your actual model, on your actual hardware, at your actual quantization level, against your actual novel problem that no model has been trained on — and tells you the exact sampling parameters that produce the best results for your use case.
 
 ---
 
