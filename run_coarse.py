@@ -57,6 +57,7 @@ FOCUSED_COMBOS = [
     {"temperature": 0.6, "top_p": 0.85, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},
     dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
     {"temperature": 0.6, "top_p": 0.95, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.6, "top_p": 0.95, "top_k": 0, "min_p": 0.1,  "repeat_penalty": 1.1},
 
     # Med-high (T=0.8) — pushing creativity
