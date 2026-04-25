@@ -129,6 +129,13 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
         "max_tokens": resolve_request_max_tokens(max_tokens, params),
         "stream": False,
     }
+    thinking_token_budget = params.get("thinking_token_budget")
+    if thinking_token_budget is not None:
+        thinking_token_budget = int(thinking_token_budget)
+        if thinking_token_budget < 1:
+            raise ValueError("thinking_token_budget must be at least 1")
+        payload["thinking_token_budget"] = thinking_token_budget
+
     for key, value in params.items():
         if key in INTERNAL_PARAM_KEYS or value is None:
             continue
@@ -137,9 +144,6 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
     chat_template_kwargs = params.get("chat_template_kwargs")
     if chat_template_kwargs:
         payload["chat_template_kwargs"] = dict(chat_template_kwargs)
-        thinking_token_budget = params.get("thinking_token_budget")
-        if thinking_token_budget is not None:
-            payload["chat_template_kwargs"]["thinking_token_budget"] = thinking_token_budget
 
     # Remove params that are 0/disabled to let LM Studio use defaults
     if payload.get("top_k") == 0:

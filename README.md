@@ -139,6 +139,9 @@ answer. When a thinking budget is active, the runner treats
 `MAX_TOKENS_PLANNER`/`MAX_TOKENS_CODER` as the visible-answer budget and sends
 `max_tokens = thinking_token_budget + visible_answer_budget`, so thinking cannot
 consume the entire response.
+For vLLM, `thinking_token_budget` is sent as a top-level sampling parameter;
+`chat_template_kwargs` is reserved for template switches such as
+`enable_thinking`.
 
 ### 3. Run a full coarse sweep (~12–14 hours per mode)
 

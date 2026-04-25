@@ -18,6 +18,7 @@ Usage:
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -25,6 +26,7 @@ sys.path.insert(0, '.')
 
 from config import (DEFAULT_PARALLEL_REQUESTS, DEFAULT_REASONING_PROFILES,
                     QWEN3_RECOMMENDED_COMBOS, expand_param_combos,
+                    resolve_reasoning_profile_config,
                     resolve_reasoning_profiles)
 from prompts.coder_prompts import CODER_PROMPTS
 from prompts.planner_prompts import PLANNER_PROMPTS
@@ -159,6 +161,39 @@ def load_param_combos_from_analysis(
     return combos, analysis_path
 
 
+def concrete_reasoning_profiles(
+    reasoning_profiles: list[str],
+    thinking_token_budget: int | None,
+) -> list[str]:
+    """Return profile names after resolving dynamic/custom thinking budgets."""
+    concrete_profiles = []
+    seen = set()
+    for profile_name in reasoning_profiles:
+        concrete_name, _ = resolve_reasoning_profile_config(
+            profile_name,
+            thinking_token_budget,
+        )
+        if concrete_name not in seen:
+            concrete_profiles.append(concrete_name)
+            seen.add(concrete_name)
+    return concrete_profiles
+
+
+def reasoning_phase_suffix(
+    reasoning_profiles: list[str],
+    thinking_token_budget: int | None,
+) -> str:
+    """Build a stable, filesystem-safe phase suffix for non-default profiles."""
+    concrete_profiles = concrete_reasoning_profiles(
+        reasoning_profiles,
+        thinking_token_budget,
+    )
+    if concrete_profiles == DEFAULT_REASONING_PROFILES and thinking_token_budget is None:
+        return ""
+    raw_suffix = "__".join(concrete_profiles)
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", raw_suffix).strip("-")
+
+
 def build_phase_name(
     explicit_phase_name: str | None,
     mode: str,
@@ -174,7 +209,8 @@ def build_phase_name(
         return explicit_phase_name
 
     if analysis_path is None and len(prompts) == len(PLANNER_PROMPTS if mode == "planner" else CODER_PROMPTS):
-        return "coarse_v2"
+        suffix = reasoning_phase_suffix(reasoning_profiles, thinking_token_budget)
+        return f"coarse_v2_{suffix}" if suffix else "coarse_v2"
 
     descriptor = {
         "mode": mode,
