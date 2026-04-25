@@ -6,11 +6,12 @@ OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, text-generation-webui, etc.
 """
 
 import os
+import re
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
-API_BASE  = "http://localhost:8001/v1"                           # OpenAI-compatible endpoint
+API_BASE  = "https://llm.sistema.pro.br/v1"                           # OpenAI-compatible endpoint
 MODEL_ID  = "FUPiA"      # exact model ID served by the endpoint
 API_KEY   = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")  # optional bearer token for protected endpoints
 MAX_CTX   = 65536                                                # context window (tokens)
@@ -29,6 +30,8 @@ MAX_TOKENS_CODER = 4096
 DEFAULT_USE_REASONING_AS_RESPONSE = False
 REASONING_PROFILE_ALIASES = {
     "direct": "non_thinking",
+    "thinking": "thinking_custom",
+    "custom_thinking": "thinking_custom",
 }
 REASONING_PROFILES = {
     "non_thinking": {
@@ -54,6 +57,13 @@ REASONING_PROFILES = {
         "thinking_token_budget": 1024,
         "use_reasoning_as_response": False,
         "description": "Enable thinking with a 1024-token reasoning budget.",
+    },
+    "thinking_custom": {
+        "chat_template_kwargs": {"enable_thinking": True},
+        "thinking_token_budget": None,
+        "requires_thinking_token_budget": True,
+        "use_reasoning_as_response": False,
+        "description": "Enable thinking with a CLI-provided reasoning budget.",
     },
 }
 DEFAULT_REASONING_PROFILES = ["non_thinking"]
@@ -215,11 +225,38 @@ def should_skip(params):
     return False
 
 
+def parse_thinking_token_budget(value):
+    """Validate and normalize a user-provided thinking token budget."""
+    if value is None:
+        return None
+    try:
+        budget = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Thinking token budget must be an integer") from exc
+    if budget < 1:
+        raise ValueError("Thinking token budget must be at least 1")
+    return budget
+
+
+def parse_dynamic_thinking_profile(profile_name):
+    """Return the budget from profile names like thinking_2048 or think_2048."""
+    if not isinstance(profile_name, str):
+        return None
+    match = re.fullmatch(r"(?:thinking|think)_(\d+)", profile_name)
+    if not match:
+        return None
+    return parse_thinking_token_budget(match.group(1))
+
+
 def normalize_reasoning_profile(profile_name):
     """Map legacy reasoning profile names to their canonical form."""
     if profile_name is None:
         return None
-    return REASONING_PROFILE_ALIASES.get(profile_name, profile_name)
+    aliased = REASONING_PROFILE_ALIASES.get(profile_name, profile_name)
+    dynamic_budget = parse_dynamic_thinking_profile(aliased)
+    if dynamic_budget is not None:
+        return f"thinking_{dynamic_budget}"
+    return aliased
 
 
 def normalize_reasoning_params(params):
@@ -230,31 +267,95 @@ def normalize_reasoning_params(params):
     return normalized
 
 
-def resolve_reasoning_profiles(reasoning_profiles=None):
+def resolve_reasoning_profiles(reasoning_profiles=None, thinking_token_budget=None):
     """Validate requested reasoning profiles and return them in order."""
-    raw_profile_names = reasoning_profiles or DEFAULT_REASONING_PROFILES
+    budget = parse_thinking_token_budget(thinking_token_budget)
+    raw_profile_names = reasoning_profiles or (
+        ["thinking_custom"] if budget is not None else DEFAULT_REASONING_PROFILES
+    )
     profile_names = []
     seen = set()
     for name in raw_profile_names:
         normalized = normalize_reasoning_profile(name)
+        dynamic_budget = parse_dynamic_thinking_profile(normalized)
+        if budget is not None and dynamic_budget is not None and dynamic_budget != budget:
+            raise ValueError(
+                f"Profile {normalized} conflicts with --thinking-token-budget={budget}"
+            )
         if normalized not in seen:
             profile_names.append(normalized)
             seen.add(normalized)
 
-    missing = [name for name in profile_names if name not in REASONING_PROFILES]
+    missing = [
+        name for name in profile_names
+        if name not in REASONING_PROFILES and parse_dynamic_thinking_profile(name) is None
+    ]
     if missing:
-        known = ", ".join(sorted(REASONING_PROFILES))
+        known = ", ".join(sorted(REASONING_PROFILES)) + ", thinking_<N>"
         missing_str = ", ".join(missing)
         raise ValueError(f"Unknown reasoning profile(s): {missing_str}. Known profiles: {known}")
+
+    requires_budget = [
+        name for name in profile_names
+        if REASONING_PROFILES.get(name, {}).get("requires_thinking_token_budget")
+    ]
+    if requires_budget and budget is None:
+        raise ValueError(
+            f"{', '.join(requires_budget)} requires --thinking-token-budget"
+        )
+
+    if budget is not None:
+        has_budgeted_profile = any(
+            name in requires_budget
+            or parse_dynamic_thinking_profile(name) is not None
+            or bool((REASONING_PROFILES.get(name, {}).get("chat_template_kwargs") or {}).get("enable_thinking"))
+            for name in profile_names
+        )
+        if not has_budgeted_profile:
+            raise ValueError("--thinking-token-budget requires a thinking profile")
     return list(profile_names)
 
 
-def expand_param_combos(param_combos, reasoning_profiles=None):
+def resolve_reasoning_profile_config(profile_name, thinking_token_budget=None):
+    """Return a concrete profile config and display name for a profile request."""
+    profile_name = normalize_reasoning_profile(profile_name)
+    cli_budget = parse_thinking_token_budget(thinking_token_budget)
+    dynamic_budget = parse_dynamic_thinking_profile(profile_name)
+
+    if dynamic_budget is not None:
+        if cli_budget is not None and cli_budget != dynamic_budget:
+            raise ValueError(
+                f"Profile {profile_name} conflicts with --thinking-token-budget={cli_budget}"
+            )
+        budget = dynamic_budget
+        return f"thinking_{budget}", {
+            "chat_template_kwargs": {"enable_thinking": True},
+            "thinking_token_budget": budget,
+            "use_reasoning_as_response": False,
+        }
+
+    profile = dict(REASONING_PROFILES[profile_name])
+    if profile.get("requires_thinking_token_budget"):
+        budget = parse_thinking_token_budget(cli_budget)
+        profile["thinking_token_budget"] = budget
+        return f"thinking_{budget}", profile
+
+    if cli_budget is not None and (profile.get("chat_template_kwargs") or {}).get("enable_thinking"):
+        profile["thinking_token_budget"] = cli_budget
+        return f"thinking_{cli_budget}", profile
+
+    return profile_name, profile
+
+
+def expand_param_combos(param_combos, reasoning_profiles=None, thinking_token_budget=None):
     """Cross product sampling combos with the selected reasoning profiles."""
     expanded = []
     for combo in param_combos:
-        for profile_name in resolve_reasoning_profiles(reasoning_profiles):
-            profile = REASONING_PROFILES[profile_name]
+        for profile_name in resolve_reasoning_profiles(reasoning_profiles, thinking_token_budget):
+            profile_name, profile = resolve_reasoning_profile_config(
+                profile_name,
+                thinking_token_budget,
+            )
             expanded_combo = dict(combo)
             expanded_combo["reasoning_profile"] = profile_name
             expanded_combo["chat_template_kwargs"] = profile.get("chat_template_kwargs")

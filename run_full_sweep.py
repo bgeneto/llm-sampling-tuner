@@ -18,14 +18,20 @@ from runner import (analyze_coarse_results, parse_reasoning_profiles_arg,
 
 N_SAMPLES = 2
 
-def run_mode(mode, reasoning_profiles, parallel_requests):
+def run_mode(mode, reasoning_profiles, parallel_requests, thinking_token_budget):
     prompts = PLANNER_PROMPTS if mode == "planner" else CODER_PROMPTS
-    combos = expand_param_combos(FOCUSED_COMBOS, reasoning_profiles)
+    combos = expand_param_combos(
+        FOCUSED_COMBOS,
+        reasoning_profiles,
+        thinking_token_budget=thinking_token_budget,
+    )
     total = len(combos) * len(prompts) * N_SAMPLES
     est_hours = total * 100 / 3600
     print(f"\n{'#'*60}")
     print(f"  SWEEP: {mode.upper()} ({total} calls, ~{est_hours:.1f}h)")
     print(f"  Reasoning profiles: {', '.join(reasoning_profiles)}")
+    if thinking_token_budget is not None:
+        print(f"  Thinking token budget: {thinking_token_budget}")
     print(f"  Parallel requests: {parallel_requests}")
     print(f"{'#'*60}")
     run_sweep_phase(
@@ -48,22 +54,30 @@ def run_mode(mode, reasoning_profiles, parallel_requests):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run planner/coder sweeps end-to-end")
     parser.add_argument("modes", nargs="*", choices=["planner", "coder"], default=["planner", "coder"])
-    parser.add_argument("--reasoning-profiles", default=",".join(DEFAULT_REASONING_PROFILES),
+    parser.add_argument("--reasoning-profiles",
                         help="Comma-separated reasoning profile names from config.REASONING_PROFILES")
+    parser.add_argument("--thinking-token-budget", type=int,
+                        help="Custom thinking budget. Use with thinking_custom or profiles like thinking_<N>")
     parser.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL_REQUESTS,
                         help="Number of concurrent requests to keep in flight")
     args = parser.parse_args()
 
     try:
-        reasoning_profiles = resolve_reasoning_profiles(
+        requested_reasoning_profiles = (
             parse_reasoning_profiles_arg(args.reasoning_profiles)
+            if args.reasoning_profiles
+            else None
+        )
+        reasoning_profiles = resolve_reasoning_profiles(
+            requested_reasoning_profiles,
+            thinking_token_budget=args.thinking_token_budget,
         )
     except ValueError as exc:
         parser.error(str(exc))
 
     modes = args.modes
     for m in modes:
-        run_mode(m, reasoning_profiles, args.parallel)
+        run_mode(m, reasoning_profiles, args.parallel, args.thinking_token_budget)
 
     print("\n\n>>> GENERATING FINAL REPORTS <<<")
     for m in modes:

@@ -99,11 +99,12 @@ export LLM_API_KEY="your-provider-token"
 
 If you already use `OPENAI_API_KEY`, that works too.
 
-If you benchmark a reasoning model such as Qwen3 on vLLM, also set
-`DEFAULT_REASONING_PROFILES` or edit `REASONING_PROFILES` to compare
-non-thinking and thinking modes explicitly. For Qwen3 on vLLM, unbounded
-thinking can spend all completion tokens in `message.reasoning` and leave
-`message.content` empty.
+If you benchmark a reasoning model such as Qwen3 on vLLM, use
+`--reasoning-profiles` to compare non-thinking and thinking modes explicitly.
+Built-in profiles include `thinking_512` and `thinking_1024`; arbitrary budgets
+are supported with either `thinking_<N>` or `thinking_custom` plus
+`--thinking-token-budget N`. For Qwen3 on vLLM, unbounded thinking can spend all
+completion tokens in `message.reasoning` and leave `message.content` empty.
 
 That's it. Everything else is automatic.
 
@@ -122,6 +123,16 @@ flight:
 ```bash
 python runner.py quickscan --mode planner --reasoning-profiles non_thinking,thinking_512 --parallel 3
 ```
+
+To test a custom 2048-token thinking budget:
+
+```bash
+python runner.py quickscan --mode planner --reasoning-profiles thinking_2048
+python runner.py quickscan --mode planner --reasoning-profiles thinking_custom --thinking-token-budget 2048
+```
+
+If you pass `--thinking-token-budget` without `--reasoning-profiles`, the CLI
+uses the custom thinking profile automatically.
 
 ### 3. Run a full coarse sweep (~12–14 hours per mode)
 

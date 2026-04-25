@@ -167,6 +167,7 @@ def build_phase_name(
     top_n: int,
     param_hashes: list[str],
     reasoning_profiles: list[str],
+    thinking_token_budget: int | None,
 ) -> str:
     """Create a safe phase name for default or holdout/custom runs."""
     if explicit_phase_name:
@@ -182,6 +183,7 @@ def build_phase_name(
         "top_n": top_n,
         "param_hashes": param_hashes,
         "reasoning_profiles": reasoning_profiles,
+        "thinking_token_budget": thinking_token_budget,
     }
     digest = hashlib.md5(json.dumps(descriptor, sort_keys=True).encode()).hexdigest()[:8]
     prefix = "holdout" if analysis_path else "coarse_custom"
@@ -204,8 +206,10 @@ def main():
     parser.add_argument("--analyze", action="store_true", help="Analyze only; do not run new requests")
     parser.add_argument("--list-prompts", action="store_true",
                         help="List prompt ids for the selected mode and exit")
-    parser.add_argument("--reasoning-profiles", default=",".join(DEFAULT_REASONING_PROFILES),
+    parser.add_argument("--reasoning-profiles",
                         help="Comma-separated reasoning profile names from config.REASONING_PROFILES")
+    parser.add_argument("--thinking-token-budget", type=int,
+                        help="Custom thinking budget. Use with thinking_custom or profiles like thinking_<N>")
     parser.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL_REQUESTS,
                         help="Number of concurrent requests to keep in flight")
     parser.add_argument("--prompt-ids",
@@ -226,8 +230,14 @@ def main():
     args = parser.parse_args()
 
     try:
-        reasoning_profiles = resolve_reasoning_profiles(
+        requested_reasoning_profiles = (
             parse_reasoning_profiles_arg(args.reasoning_profiles)
+            if args.reasoning_profiles
+            else None
+        )
+        reasoning_profiles = resolve_reasoning_profiles(
+            requested_reasoning_profiles,
+            thinking_token_budget=args.thinking_token_budget,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -258,10 +268,19 @@ def main():
 
     n_samples = 2
     if loaded_combos is not None:
+        if args.thinking_token_budget is not None:
+            parser.error(
+                "--thinking-token-budget only applies when expanding built-in combos; "
+                "analysis finalists already include their budget"
+            )
         expanded_combos = loaded_combos
         combo_source = f"analysis file {analysis_path}"
     else:
-        expanded_combos = expand_param_combos(FOCUSED_COMBOS, reasoning_profiles)
+        expanded_combos = expand_param_combos(
+            FOCUSED_COMBOS,
+            reasoning_profiles,
+            thinking_token_budget=args.thinking_token_budget,
+        )
         combo_source = "built-in focused combo set"
 
     phase_name = build_phase_name(
@@ -272,6 +291,7 @@ def main():
         args.top_n,
         selected_hashes,
         reasoning_profiles,
+        args.thinking_token_budget,
     )
 
     total_calls = len(expanded_combos) * len(prompts) * n_samples
@@ -279,6 +299,8 @@ def main():
     print(f"\nFocused Coarse Sweep: {args.mode.upper()}")
     if analysis_path is None:
         print(f"  Reasoning profiles: {', '.join(reasoning_profiles)}")
+        if args.thinking_token_budget is not None:
+            print(f"  Thinking token budget: {args.thinking_token_budget}")
     else:
         selected_profiles = sorted({combo.get('reasoning_profile', 'unprofiled') for combo in expanded_combos})
         print(f"  Finalists loaded from: {analysis_path}")

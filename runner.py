@@ -43,7 +43,12 @@ from prompts.planner_prompts import PLANNER_PROMPTS
 
 RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
-INTERNAL_PARAM_KEYS = {"reasoning_profile", "use_reasoning_as_response"}
+INTERNAL_PARAM_KEYS = {
+    "reasoning_profile",
+    "use_reasoning_as_response",
+    "chat_template_kwargs",
+    "thinking_token_budget",
+}
 
 
 def param_hash(params: dict) -> str:
@@ -109,6 +114,13 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
             continue
         payload[key] = value
 
+    chat_template_kwargs = params.get("chat_template_kwargs")
+    if chat_template_kwargs:
+        payload["chat_template_kwargs"] = dict(chat_template_kwargs)
+        thinking_token_budget = params.get("thinking_token_budget")
+        if thinking_token_budget is not None:
+            payload["chat_template_kwargs"]["thinking_token_budget"] = thinking_token_budget
+
     # Remove params that are 0/disabled to let LM Studio use defaults
     if payload.get("top_k") == 0:
         del payload["top_k"]
@@ -123,8 +135,31 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
         headers=headers,
         timeout=timeout,
     )
-    resp.raise_for_status()
-    return resp.json()
+    body_preview = resp.text[:500].replace("\n", "\\n")
+    content_type = resp.headers.get("content-type", "")
+
+    if not resp.text.strip():
+        raise RuntimeError(
+            f"Empty response from API: status={resp.status_code}, "
+            f"content_type={content_type!r}, payload_keys={sorted(payload)}"
+        )
+
+    try:
+        raw = resp.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Non-JSON response from API: status={resp.status_code}, "
+            f"content_type={content_type!r}, body={body_preview!r}, "
+            f"payload_keys={sorted(payload)}"
+        ) from exc
+
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"API error: status={resp.status_code}, body={json.dumps(raw)[:500]}, "
+            f"payload_keys={sorted(payload)}"
+        )
+
+    return raw
 
 
 def extract_response_text(raw: dict, use_reasoning_as_response: bool = False) -> tuple[str, dict]:
@@ -495,6 +530,10 @@ def analyze_coarse_results(
 
     combo_scores.sort(key=lambda x: x["combined"], reverse=True)
 
+    if not combo_scores:
+        print("\n  No complete param combos to analyze; analysis file was not updated")
+        return []
+
     # Save analysis
     analysis_file = RESULTS_DIR / f"analysis_{phase_name}_{mode}.json"
     with open(analysis_file, "w") as f:
@@ -564,7 +603,8 @@ def generate_fine_grid(top_combo: dict, step_sizes: dict | None = None) -> list[
 # ── Main entry points ──
 
 def run_coarse(mode: str, reasoning_profiles: list[str] | None = None,
-               parallel_requests: int = DEFAULT_PARALLEL_REQUESTS):
+               parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
+               thinking_token_budget: int | None = None):
     """Phase 1: Coarse sweep with 3 representative prompts using strategic combos."""
     if mode == "planner":
         # Pick 1 hard arch + 1 medium debug + 1 feature as representatives
@@ -574,7 +614,11 @@ def run_coarse(mode: str, reasoning_profiles: list[str] | None = None,
         target_ids = ("code_algo_01", "code_fix_01", "code_spec_01")
         prompts = [p for p in CODER_PROMPTS if p["id"] in target_ids]
 
-    combos = expand_param_combos(PARAM_COMBOS_STRATEGIC, reasoning_profiles)
+    combos = expand_param_combos(
+        PARAM_COMBOS_STRATEGIC,
+        reasoning_profiles,
+        thinking_token_budget=thinking_token_budget,
+    )
     print(f"Using {len(combos)} strategic param combos for coarse sweep")
 
     # n_samples=2 for coarse to keep time reasonable (~100s/call on IQ4_SX)
@@ -620,7 +664,8 @@ def run_fine(mode: str, top_combo: dict,
 
 
 def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
-                  parallel_requests: int = DEFAULT_PARALLEL_REQUESTS):
+                  parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
+                  thinking_token_budget: int | None = None):
     """Low-cost scan that trades breadth for faster directional feedback.
 
     Planner stays minimal.
@@ -678,7 +723,11 @@ def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
             {"temperature": 0.8, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
             {"temperature": 1.0, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.15},
         ]
-    expanded = expand_param_combos(combos, reasoning_profiles)
+    expanded = expand_param_combos(
+        combos,
+        reasoning_profiles,
+        thinking_token_budget=thinking_token_budget,
+    )
     total_calls = len(expanded) * len(prompts) * n_samples
     print(
         f"Quickscan: {len(expanded)} combos × {len(prompts)} prompt(s) × "
@@ -703,14 +752,24 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["planner", "coder", "both"], default="both",
                         help="Which mode to benchmark")
     parser.add_argument("--top-n", type=int, default=10, help="Top N combos for focused phase")
-    parser.add_argument("--reasoning-profiles", default=",".join(DEFAULT_REASONING_PROFILES),
+    parser.add_argument("--reasoning-profiles",
                         help="Comma-separated reasoning profile names from config.REASONING_PROFILES")
+    parser.add_argument("--thinking-token-budget", type=int,
+                        help="Custom thinking budget. Use with thinking_custom or profiles like thinking_<N>")
     parser.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL_REQUESTS,
                         help="Number of concurrent requests to keep in flight")
     args = parser.parse_args()
 
     try:
-        reasoning_profiles = resolve_reasoning_profiles(parse_reasoning_profiles_arg(args.reasoning_profiles))
+        requested_reasoning_profiles = (
+            parse_reasoning_profiles_arg(args.reasoning_profiles)
+            if args.reasoning_profiles
+            else None
+        )
+        reasoning_profiles = resolve_reasoning_profiles(
+            requested_reasoning_profiles,
+            thinking_token_budget=args.thinking_token_budget,
+        )
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -718,13 +777,23 @@ if __name__ == "__main__":
 
     if args.phase == "quickscan":
         for m in modes:
-            run_quickscan(m, reasoning_profiles=reasoning_profiles, parallel_requests=args.parallel)
+            run_quickscan(
+                m,
+                reasoning_profiles=reasoning_profiles,
+                parallel_requests=args.parallel,
+                thinking_token_budget=args.thinking_token_budget,
+            )
             print("\n>>> Quickscan analysis:")
             analyze_coarse_results(m, "quickscan")
 
     elif args.phase == "coarse":
         for m in modes:
-            run_coarse(m, reasoning_profiles=reasoning_profiles, parallel_requests=args.parallel)
+            run_coarse(
+                m,
+                reasoning_profiles=reasoning_profiles,
+                parallel_requests=args.parallel,
+                thinking_token_budget=args.thinking_token_budget,
+            )
 
     elif args.phase == "analyze_coarse":
         for m in modes:
@@ -749,7 +818,12 @@ if __name__ == "__main__":
             print(f"{'#'*60}")
 
             print("\n>>> Phase 1: Coarse sweep")
-            run_coarse(m, reasoning_profiles=reasoning_profiles, parallel_requests=args.parallel)
+            run_coarse(
+                m,
+                reasoning_profiles=reasoning_profiles,
+                parallel_requests=args.parallel,
+                thinking_token_budget=args.thinking_token_budget,
+            )
 
             print("\n>>> Phase 2: Analyze coarse + Focused sweep")
             top = analyze_coarse_results(m, "coarse")[:args.top_n]
