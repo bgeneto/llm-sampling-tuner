@@ -64,6 +64,11 @@ MODEL_ID  = "mistralai_devstral-small-2-24b-instruct-2512"   # your model ID
 MAX_CTX   = 61440                                             # your context window
 ```
 
+If you benchmark a reasoning model such as Qwen3 on vLLM, also set
+`CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}` or a small
+`THINKING_TOKEN_BUDGET`. Otherwise the model can spend all completion tokens in
+`message.reasoning` and leave `message.content` empty.
+
 That's it. Everything else is automatic.
 
 ### 2. Run a quickscan (~50 minutes)

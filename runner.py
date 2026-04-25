@@ -28,9 +28,11 @@ from pathlib import Path
 
 import requests
 
-from config import (API_BASE, MAX_TOKENS_CODER, MAX_TOKENS_PLANNER, MODEL_ID,
-                    PARAM_COMBOS_STRATEGIC, PARAM_GRID_COARSE,
-                    SAMPLES_PER_COMBO, generate_combos, should_skip)
+from config import (API_BASE, CHAT_TEMPLATE_KWARGS, MAX_TOKENS_CODER,
+                    MAX_TOKENS_PLANNER, MODEL_ID, PARAM_COMBOS_STRATEGIC,
+                    PARAM_GRID_COARSE, SAMPLES_PER_COMBO,
+                    THINKING_TOKEN_BUDGET, USE_REASONING_AS_RESPONSE,
+                    generate_combos, should_skip)
 from grader import GradeResult, grade_coder, grade_planner, grade_stability
 from prompts.coder_prompts import CODER_PROMPTS
 from prompts.planner_prompts import PLANNER_PROMPTS
@@ -55,6 +57,11 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
         "stream": False,
         **params,
     }
+    if CHAT_TEMPLATE_KWARGS:
+        payload["chat_template_kwargs"] = CHAT_TEMPLATE_KWARGS
+    if THINKING_TOKEN_BUDGET is not None:
+        payload["thinking_token_budget"] = THINKING_TOKEN_BUDGET
+
     # Remove params that are 0/disabled to let LM Studio use defaults
     if payload.get("top_k") == 0:
         del payload["top_k"]
@@ -74,6 +81,8 @@ def extract_response_text(raw: dict) -> tuple[str, dict]:
     choice = choices[0] if choices else {}
     message = choice.get("message") or {}
     content = message.get("content")
+    reasoning = message.get("reasoning")
+    reasoning_text = reasoning if isinstance(reasoning, str) else ""
 
     if isinstance(content, str):
         text = content
@@ -96,12 +105,18 @@ def extract_response_text(raw: dict) -> tuple[str, dict]:
         text = str(content)
         content_type = type(content).__name__
 
-    reasoning = message.get("reasoning")
+    used_reasoning_as_response = False
+    if not text.strip() and USE_REASONING_AS_RESPONSE and reasoning_text.strip():
+        text = reasoning_text
+        content_type = "reasoning"
+        used_reasoning_as_response = True
+
     return text, {
         "finish_reason": choice.get("finish_reason"),
         "content_type": content_type,
-        "has_reasoning": bool(reasoning),
-        "reasoning_length": len(reasoning) if isinstance(reasoning, str) else 0,
+        "has_reasoning": bool(reasoning_text),
+        "reasoning_length": len(reasoning_text),
+        "used_reasoning_as_response": used_reasoning_as_response,
     }
 
 

@@ -10,7 +10,7 @@ import itertools
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE TWO VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
-API_BASE  = "https://localhost:8001/v1"                           # OpenAI-compatible endpoint
+API_BASE  = "http://localhost:8001/v1"                           # OpenAI-compatible endpoint
 MODEL_ID  = "qwen-gpu"      # exact model ID served by the endpoint
 MAX_CTX   = 61440                                                # context window (tokens)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -21,6 +21,17 @@ SAMPLES_PER_COMBO = 5
 # ── Max tokens by mode ──
 MAX_TOKENS_PLANNER = 2048
 MAX_TOKENS_CODER = 4096
+
+# ── Reasoning-model controls ──
+# Qwen3 on vLLM enables thinking by default. If you leave it on, the model can
+# spend the full completion budget in `message.reasoning` and never emit a final
+# answer in `message.content`, which this benchmark grades.
+CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+THINKING_TOKEN_BUDGET = None
+
+# Only enable this if your provider puts the usable answer text in `reasoning`
+# instead of `content`. For vLLM/Qwen, the preferred fix is disabling thinking.
+USE_REASONING_AS_RESPONSE = False
 
 # ── Parameter Grid ──
 # We sweep across a focused grid. The grid is intentionally asymmetric:
