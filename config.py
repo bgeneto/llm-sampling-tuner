@@ -8,7 +8,7 @@ OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, text-generation-webui, etc.
 import itertools
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CHANGE THESE TWO VALUES to target a different model / API endpoint
+#  CHANGE THESE VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
 API_BASE  = "http://localhost:8001/v1"                           # OpenAI-compatible endpoint
 MODEL_ID  = "qwen-gpu"      # exact model ID served by the endpoint
@@ -60,6 +60,31 @@ DEFAULT_REASONING_PROFILES = ["non_thinking"]
 # ── Sweep execution controls ──
 DEFAULT_PARALLEL_REQUESTS = 2
 
+# ── Qwen3 reference presets ──
+QWEN3_RECOMMENDED_COMBOS = {
+    "default": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
+    "thinking_coding": {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
+    "instruct": {
+        "temperature": 0.7,
+        "top_p": 0.80,
+        "top_k": 20,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
+}
+
 # ── Parameter Grid ──
 # We sweep across a focused grid. The grid is intentionally asymmetric:
 # - Planner needs coherent, structured reasoning → lower temp, tighter nucleus
@@ -69,7 +94,7 @@ DEFAULT_PARALLEL_REQUESTS = 2
 
 PARAM_GRID_COARSE = {
     "temperature":    [0.0, 0.4, 0.6, 0.7, 0.8, 1.0],
-    "top_p":          [0.7, 0.85, 0.95, 1.0],
+    "top_p":          [0.7, 0.8, 0.85, 0.95, 1.0],
     "top_k":          [0, 20, 50],                 # 0 = disabled
     "min_p":          [0.0, 0.05, 0.1],
     "repeat_penalty": [1.0, 1.05, 1.1, 1.15],
@@ -86,11 +111,11 @@ PARAM_COMBOS_STRATEGIC = [
     {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.15},
 
     # Bridge temp (0.7) — explicitly cover the gap between 0.6 and 0.8
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.7, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 20, "min_p": 0.0,  "repeat_penalty": 1.0},
+    dict(QWEN3_RECOMMENDED_COMBOS["instruct"]),
     {"temperature": 0.7, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
@@ -109,15 +134,15 @@ PARAM_COMBOS_STRATEGIC = [
     {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.4, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
     {"temperature": 0.4, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
     {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 20, "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 20, "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.4, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.4, "top_p": 0.85, "top_k": 50, "min_p": 0.05, "repeat_penalty": 1.0},
     {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
@@ -137,14 +162,14 @@ PARAM_COMBOS_STRATEGIC = [
     {"temperature": 0.6, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
     {"temperature": 0.6, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.6, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
     {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.6, "top_p": 0.85, "top_k": 50, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
     {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
@@ -161,13 +186,13 @@ PARAM_COMBOS_STRATEGIC = [
     # Medium-high temp (0.8) — more creative, higher derail risk
     {"temperature": 0.8, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.8, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
     {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
     {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.8, "top_p": 0.85, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 50, "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 50, "min_p": 0.1,  "repeat_penalty": 1.05},
     {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
     {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
@@ -179,12 +204,12 @@ PARAM_COMBOS_STRATEGIC = [
     # High temp (1.0) — maximum creativity, strong guardrails needed
     {"temperature": 1.0, "top_p": 0.7,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.7,  "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 50, "min_p": 0.1,  "repeat_penalty": 1.1},
+    dict(QWEN3_RECOMMENDED_COMBOS["default"]),
+    {"temperature": 1.0, "top_p": 0.80, "top_k": 50, "min_p": 0.1,  "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
     {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
