@@ -530,13 +530,20 @@ def run_fine(mode: str, top_combo: dict,
 
 def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
                   parallel_requests: int = DEFAULT_PARALLEL_REQUESTS):
-    """Ultra-fast scan: 30 key combos × 1 prompt × 1 sample.
-    ~30 calls × ~100s = ~50 min. Gives directional data fast."""
-    # Pick the MOST discriminating prompt per mode
+    """Low-cost scan that trades breadth for faster directional feedback.
+
+    Planner keeps a single prompt and sample for speed.
+    Coder uses multiple verifiable prompts and 2 samples to reduce score ties.
+    """
+    # Planner stays lightweight; coder uses a small diverse holdout to improve
+    # discrimination between otherwise near-tied parameter combos.
     if mode == "planner":
         prompts = [p for p in PLANNER_PROMPTS if p["id"] == "plan_arch_01"]
+        n_samples = 1
     else:
-        prompts = [p for p in CODER_PROMPTS if p["id"] == "code_algo_01"]
+        quickscan_prompt_ids = {"code_algo_01", "code_fix_02", "code_spec_02"}
+        prompts = [p for p in CODER_PROMPTS if p["id"] in quickscan_prompt_ids]
+        n_samples = 2
 
     # 30 maximally diverse combos spanning the full space
     combos = [
@@ -578,12 +585,17 @@ def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
         {"temperature": 1.0, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
     ]
     expanded = expand_param_combos(combos, reasoning_profiles)
-    print(f"Quickscan: {len(expanded)} combos × 1 prompt × 1 sample = {len(expanded)} calls")
+    total_calls = len(expanded) * len(prompts) * n_samples
+    print(
+        f"Quickscan: {len(expanded)} combos × {len(prompts)} prompt(s) × "
+        f"{n_samples} sample(s) = {total_calls} calls"
+    )
+    print(f"  Prompt ids: {', '.join(prompt['id'] for prompt in prompts)}")
     return run_sweep_phase(
         mode,
         prompts,
         expanded,
-        n_samples=1,
+        n_samples=n_samples,
         phase_name="quickscan",
         parallel_requests=parallel_requests,
     )
