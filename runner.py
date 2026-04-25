@@ -1,7 +1,7 @@
 """
 Parameter Sweep Runner
 ======================
-Runs Devstral through the parameter grid and collects graded results.
+Runs model through the parameter grid and collects graded results.
 
 Strategy:
   Phase 1 (COARSE): Test a strategic subset of the full grid using 2 prompts per mode.
@@ -33,10 +33,9 @@ from config import (API_BASE, API_KEY, DEFAULT_PARALLEL_REQUESTS,
                     DEFAULT_REASONING_PROFILES,
                     DEFAULT_USE_REASONING_AS_RESPONSE, MAX_TOKENS_CODER,
                     MAX_TOKENS_PLANNER, MODEL_ID, PARAM_COMBOS_STRATEGIC,
-                    PARAM_GRID_COARSE, QWEN3_RECOMMENDED_COMBOS,
-                    SAMPLES_PER_COMBO, expand_param_combos, generate_combos,
-                    normalize_reasoning_params, resolve_reasoning_profiles,
-                    should_skip)
+                    QWEN3_RECOMMENDED_COMBOS, SAMPLES_PER_COMBO,
+                    expand_param_combos, normalize_reasoning_params,
+                    resolve_reasoning_profiles, should_skip)
 from grader import GradeResult, grade_coder, grade_planner, grade_stability
 from prompts.coder_prompts import CODER_PROMPTS
 from prompts.planner_prompts import PLANNER_PROMPTS

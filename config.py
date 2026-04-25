@@ -5,16 +5,15 @@ Change MODEL_ID and API_BASE below to benchmark any model on any
 OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, text-generation-webui, etc.)
 """
 
-import itertools
 import os
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
 API_BASE  = "http://localhost:8001/v1"                           # OpenAI-compatible endpoint
-MODEL_ID  = "qwen-gpu"      # exact model ID served by the endpoint
+MODEL_ID  = "FUPiA"      # exact model ID served by the endpoint
 API_KEY   = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")  # optional bearer token for protected endpoints
-MAX_CTX   = 61440                                                # context window (tokens)
+MAX_CTX   = 65536                                                # context window (tokens)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Repetitions per (prompt, param_combo) to handle stochastic variance ──
@@ -87,21 +86,6 @@ QWEN3_RECOMMENDED_COMBOS = {
     },
 }
 
-# ── Parameter Grid ──
-# We sweep across a focused grid. The grid is intentionally asymmetric:
-# - Planner needs coherent, structured reasoning → lower temp, tighter nucleus
-# - Coder needs precise syntax + creative problem solving → balanced temp, strict sampling
-#
-# Each parameter has a "coarse" sweep first, then we zoom into the best region.
-
-PARAM_GRID_COARSE = {
-    "temperature":    [0.0, 0.4, 0.6, 0.7, 0.8, 1.0],
-    "top_p":          [0.7, 0.8, 0.85, 0.95, 1.0],
-    "top_k":          [0, 20, 30, 60],                 # 0 = disabled
-    "min_p":          [0.0, 0.05, 0.1],
-    "repeat_penalty": [1.0, 1.05, 1.1, 1.15],
-}
-
 # ── Strategic subset for coarse phase ──
 # Instead of full Cartesian (3000+ combos), we use curated combos
 # that cover the parameter space efficiently: ~100 combos
@@ -117,7 +101,6 @@ PARAM_COMBOS_STRATEGIC = [
     {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
     {"temperature": 0.7, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    dict(QWEN3_RECOMMENDED_COMBOS["instruct"]),
     {"temperature": 0.7, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
@@ -170,7 +153,6 @@ PARAM_COMBOS_STRATEGIC = [
     {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
     {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
     {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
     {"temperature": 0.6, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.6, "top_p": 0.85, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.05},
     {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
@@ -210,7 +192,6 @@ PARAM_COMBOS_STRATEGIC = [
     {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
     {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
-    dict(QWEN3_RECOMMENDED_COMBOS["default"]),
     {"temperature": 1.0, "top_p": 0.80, "top_k": 60, "min_p": 0.1,  "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
     {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
@@ -232,16 +213,6 @@ def should_skip(params):
         if params["top_p"] != 1.0 or params["top_k"] != 0 or params["min_p"] != 0.0:
             return True
     return False
-
-def generate_combos(grid):
-    """Generate all non-skippable parameter combinations."""
-    keys = list(grid.keys())
-    combos = []
-    for vals in itertools.product(*[grid[k] for k in keys]):
-        combo = dict(zip(keys, vals))
-        if not should_skip(combo):
-            combos.append(combo)
-    return combos
 
 
 def normalize_reasoning_profile(profile_name):

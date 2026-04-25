@@ -301,7 +301,7 @@ Works with any OpenAI-compatible API that supports these sampling parameters:
 |----------|--------|
 | **LM Studio** | Tested |
 | **Ollama** | Compatible (use `http://localhost:11434/v1`) |
-| **vLLM** | Compatible |
+| **vLLM** | Compatible | Tested
 | **llama.cpp server** | Compatible |
 | **text-generation-webui** (with openai ext) | Compatible |
 | **OpenRouter / Together / Fireworks** | Compatible (set API_BASE + `LLM_API_KEY` or `OPENAI_API_KEY`) |
