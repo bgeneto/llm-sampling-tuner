@@ -11,8 +11,8 @@ import re
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
-API_BASE  = "https://llm.sistema.pro.br/v1"                           # OpenAI-compatible endpoint
-MODEL_ID  = "FUPiA"      # exact model ID served by the endpoint
+API_BASE  = "http://localhost:8001/v1"                           # OpenAI-compatible endpoint
+MODEL_ID  = "qwen-gpu"      # exact model ID served by the endpoint
 API_KEY   = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")  # optional bearer token for protected endpoints
 MAX_CTX   = 65536                                                # context window (tokens)
 # ═══════════════════════════════════════════════════════════════════════════════
