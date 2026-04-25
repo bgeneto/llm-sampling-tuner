@@ -37,6 +37,26 @@ Include a `__repr__` that shows the cache contents in MRU→LRU order.
 Include 5 test cases that verify correctness including eviction behavior.""",
         "eval_notes": "Must have DLL + dict, O(1) complexity, working eviction, valid test cases.",
         "has_verifiable_output": True,
+    "reference_tests": """
+cache = LRUCache(2)
+cache.put(1, 1)
+cache.put(2, 2)
+assert cache.get(1) == 1
+cache.put(3, 3)
+assert cache.get(2) == -1
+cache.put(4, 4)
+assert cache.get(1) == -1
+assert cache.get(3) == 3
+assert cache.get(4) == 4
+
+cache = LRUCache(2)
+cache.put(1, 1)
+cache.put(2, 2)
+cache.put(1, 10)
+cache.put(3, 3)
+assert cache.get(1) == 10
+assert cache.get(2) == -1
+""",
     },
 
     {
@@ -56,6 +76,31 @@ Requirements:
 Include 4 test cases: simple path, no path, single node, negative weight error.""",
         "eval_notes": "Must use heapq, reconstruct path, handle edge cases, raise on negative weights.",
         "has_verifiable_output": True,
+        "reference_tests": """
+graph = {
+    "A": [("B", 1.0), ("C", 5.0)],
+    "B": [("C", 1.0), ("D", 3.0)],
+    "C": [("D", 1.0)],
+    "D": [],
+}
+cost, path = dijkstra(graph, "A", "D")
+assert cost == 3.0
+assert path == ["A", "B", "C", "D"]
+
+cost, path = dijkstra({"A": [("B", 1.0)], "B": [], "C": []}, "A", "C")
+assert cost == float("inf")
+assert path == []
+
+cost, path = dijkstra({"A": []}, "A", "A")
+assert cost == 0
+assert path == ["A"]
+
+try:
+    dijkstra({"A": [("B", -1.0)], "B": []}, "A", "B")
+    raise AssertionError("expected ValueError for negative weight")
+except ValueError:
+    pass
+""",
     },
 
     {
@@ -76,6 +121,13 @@ Requirements:
 Include 5 test cases including edge cases.""",
         "eval_notes": "Must use heap with list index tracking, handle empties, correct complexity.",
         "has_verifiable_output": True,
+    "reference_tests": """
+assert merge_k_sorted([[1, 4, 5], [1, 3, 4], [2, 6]]) == [1, 1, 2, 3, 4, 4, 5, 6]
+assert merge_k_sorted([]) == []
+assert merge_k_sorted([[], []]) == []
+assert merge_k_sorted([[1], [], [-1, 0, 2]]) == [-1, 0, 1, 2]
+assert merge_k_sorted([[1, 1], [1]]) == [1, 1, 1]
+""",
     },
 
     # ── 2. System Code ──
@@ -120,6 +172,25 @@ Requirements:
 Include a demo showing 10 tasks submitted to 3 workers with mixed success/failure.""",
         "eval_notes": "Must use threading.Thread + queue.Queue, custom Future class, error isolation.",
         "has_verifiable_output": True,
+        "reference_tests": """
+def _explode():
+    raise ValueError("boom")
+
+task_queue = TaskQueue(2)
+future_one = task_queue.submit(lambda x: x + 1, 1)
+future_err = task_queue.submit(_explode)
+future_two = task_queue.submit(lambda: "ok")
+
+assert future_one.result(timeout=2) == 2
+try:
+    future_err.result(timeout=2)
+    raise AssertionError("expected task failure to propagate")
+except Exception:
+    pass
+assert future_two.result(timeout=2) == "ok"
+assert future_two.done() is True
+task_queue.shutdown(wait=True)
+""",
     },
 
     # ── 3. Bug Fixing ──
@@ -173,6 +244,19 @@ print(f"A: {a.balance}, B: {b.balance}")
 Provide the corrected version with all bugs fixed.""",
         "eval_notes": "Bugs: withdraw doesn't release lock on failure, transfer causes deadlock (nested locks + withdraw re-acquires), no context managers.",
         "has_verifiable_output": True,
+    "reference_tests": """
+account_a = BankAccount(100)
+account_b = BankAccount(50)
+
+assert account_a.withdraw(200) == -1
+assert account_a.deposit(25) == 125
+
+account_a.transfer(account_b, 25)
+assert account_a.balance == 100
+assert account_b.balance == 75
+
+assert account_a.withdraw(100) == 0
+""",
     },
 
     {
@@ -232,6 +316,54 @@ asyncio.run(main())
 ```""",
         "eval_notes": "Bugs: race condition on pending (multiple awaits on same coroutine), get_many is sequential not concurrent, pending stores coroutine not Task/Future, invalidate during pending compute.",
         "has_verifiable_output": True,
+        "reference_tests": """
+import asyncio
+
+async def _reference_test_async_cache():
+    cache = AsyncCache()
+    call_log = []
+
+    async def dedup_compute(key):
+        call_log.append(key)
+        await asyncio.sleep(0.01)
+        return f"value_{key}"
+
+    results = await asyncio.gather(
+        cache.get_or_compute("a", dedup_compute),
+        cache.get_or_compute("a", dedup_compute),
+    )
+    assert results == ["value_a", "value_a"]
+    assert call_log == ["a"]
+    assert await cache.get_or_compute("a", dedup_compute) == "value_a"
+    assert call_log == ["a"]
+
+    parallel_started = []
+    both_started = asyncio.Event()
+
+    async def parallel_compute(key):
+        parallel_started.append(key)
+        if len(parallel_started) == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=0.2)
+        return key.upper()
+
+    results = await cache.get_many(["x", "y"], parallel_compute)
+    assert results == ["X", "Y"]
+
+    gate = asyncio.Event()
+
+    async def slow_compute(key):
+        await gate.wait()
+        return f"done_{key}"
+
+    pending_task = asyncio.create_task(cache.get_or_compute("z", slow_compute))
+    await asyncio.sleep(0)
+    await cache.invalidate("z")
+    gate.set()
+    assert await pending_task == "done_z"
+
+asyncio.run(_reference_test_async_cache())
+""",
     },
 
     # ── 4. Code from Spec ──
@@ -258,6 +390,19 @@ REQUIREMENTS:
 Include 8 test cases covering all grammar rules and error cases.""",
         "eval_notes": "Must implement recursive descent, handle precedence correctly, no eval() cheating.",
         "has_verifiable_output": True,
+        "reference_tests": """
+assert abs(evaluate("3 + 4 * 2") - 11.0) < 1e-9
+assert abs(evaluate("-(3 + 4) * 2") - -14.0) < 1e-9
+assert abs(evaluate("2.5 * 4") - 10.0) < 1e-9
+assert abs(evaluate("((1 + 2) * 3) / 2") - 4.5) < 1e-9
+
+for invalid in ("2 +", "1 / )", "(1 + 2"):
+    try:
+        evaluate(invalid)
+        raise AssertionError(f"expected ValueError for {invalid!r}")
+    except ValueError:
+        pass
+""",
     },
 
     {
@@ -287,6 +432,72 @@ Requirements:
 Include comprehensive tests for all features including re-entrancy.""",
         "eval_notes": "Must handle re-entrancy (iterate copy), thread safety, async wait integration.",
         "has_verifiable_output": True,
+        "reference_tests": """
+import asyncio
+
+emitter = EventEmitter()
+received = []
+
+def handler(value):
+    received.append(("on", value))
+
+unsubscribe = emitter.on("data", handler)
+assert callable(unsubscribe)
+listeners_snapshot = emitter.listeners("data")
+listeners_snapshot.clear()
+assert len(emitter.listeners("data")) == 1
+assert emitter.emit("data", 3) == 1
+assert received == [("on", 3)]
+assert emitter.off("data", handler) is True
+assert emitter.emit("data", 4) == 0
+
+once_received = []
+emitter.once("once", lambda value: once_received.append(value))
+assert emitter.emit("once", 1) == 1
+assert emitter.emit("once", 2) == 0
+assert once_received == [1]
+
+reentrant = []
+def child():
+    reentrant.append("child")
+def parent():
+    reentrant.append("parent")
+    emitter.emit("child")
+emitter.on("child", child)
+emitter.on("parent", parent)
+assert emitter.emit("parent") == 1
+assert reentrant == ["parent", "child"]
+
+async def _reference_test_event_emitter():
+    waiter = emitter.wait("ready", timeout=0.2)
+
+    async def emit_later():
+        await asyncio.sleep(0.01)
+        emitter.emit("ready", 1, 2)
+
+    asyncio.create_task(emit_later())
+    payload = await waiter
+    if payload == ((1, 2), {}):
+        normalized = (1, 2)
+    elif isinstance(payload, tuple) and len(payload) == 1 and isinstance(payload[0], tuple):
+        normalized = payload[0]
+    elif isinstance(payload, list):
+        normalized = tuple(payload)
+    elif isinstance(payload, tuple):
+        normalized = payload
+    else:
+        normalized = (payload,)
+    assert normalized == (1, 2)
+
+    timed_out = False
+    try:
+        await emitter.wait("never", timeout=0.01)
+    except asyncio.TimeoutError:
+        timed_out = True
+    assert timed_out
+
+asyncio.run(_reference_test_event_emitter())
+""",
     },
 
     # ── 5. Refactoring ──

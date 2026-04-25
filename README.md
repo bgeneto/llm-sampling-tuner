@@ -1,6 +1,6 @@
 # LLM Sampling Tuner
 
-**Find the real-world optimal settings for any local LLM — because published benchmarks won't tell you.**
+**Find strong real-world settings for any local LLM — because published benchmarks won't tell you.**
 
 ---
 
@@ -12,7 +12,7 @@ Every model ships with recommended sampling parameters — `temperature`, `top_p
 
 On top of that, published benchmarks (MMLU, HumanEval, etc.) are increasingly unreliable. Models are trained on the test sets. Scores go up while real-world performance stays flat. There is no benchmark for *"Can this model plan a system architecture without going off the rails at temperature 0.6?"*
 
-**This tool fills that gap.** It runs your actual model, on your actual hardware, at your actual quantization level, against your actual novel problem that no model has been trained on — and tells you the exact sampling parameters that produce the best results for your use case.
+**This tool fills that gap.** It runs your actual model, on your actual hardware, at your actual quantization level, against your actual novel problem that no model has been trained on — and helps you identify the best-performing parameter candidates for your use case.
 
 ---
 
@@ -23,8 +23,9 @@ LLM Sampling Tuner is an automated parameter sweep pipeline that:
 1. **Sends diverse test prompts** to your model through any OpenAI-compatible API
 2. **Grades every response** using heuristic analysis and actual code execution
 3. **Sweeps the parameter space** across temperature, top_p, top_k, min_p, and repeat_penalty
-4. **Accounts for stochastic variance** by running multiple samples per configuration
-5. **Produces a ranked report** of optimal settings, broken down by task type
+4. **Treats reasoning mode as a first-class axis** so you can compare direct-answer vs bounded-thinking profiles
+5. **Accounts for stochastic variance** by running multiple samples per configuration
+6. **Produces a ranked report** of strong candidate settings, broken down by task type
 
 It benchmarks two distinct modes that matter for agentic coding workflows:
 
@@ -38,11 +39,17 @@ It benchmarks two distinct modes that matter for agentic coding workflows:
 Responses are not graded with another LLM (which would add its own biases). Instead, the grader uses deterministic heuristics:
 
 - **Planner mode**: Scores structure (headers, numbered steps, nesting), completeness (topic coverage), actionability (imperative verbs, named technologies, tradeoff analysis), coherence (trigram repetition detection), conciseness (information density), and hallucination resistance
-- **Coder mode**: Actually **executes the generated Python code** in a sandboxed subprocess, checks if assertions pass, then scores code quality via AST analysis (docstrings, type hints, function decomposition, naming conventions), spec adherence, and hallucination detection
+- **Coder mode**: Actually **executes the generated Python code** in a local subprocess, runs hidden reference checks when the prompt defines them, then scores code quality via AST analysis (docstrings, type hints, function decomposition, naming conventions), spec adherence, and hallucination detection
 
 ### Why Not Just Use an LLM-as-Judge?
 
-Because the judge would need its own temperature settings tuned first. The grading must be deterministic and independent of the model under test. Heuristic scoring with code execution gives you ground truth for coder mode and highly correlated signal for planner mode — without circular dependencies.
+Because the judge would need its own temperature settings tuned first. The grading must be deterministic and independent of the model under test. Heuristic scoring with code execution gives you a strong correctness signal for coder mode and a useful proxy for planner mode — without circular dependencies.
+
+### What This Tool Is And Isn't
+
+This project is best used as a **workload-specific ranking harness**. It is good at finding bad parameter regions, surfacing strong candidates, and showing how different sampling settings behave on your prompts.
+
+It is **not** a proof of a global optimum. The final ranking depends on your prompt set, your scoring weights, your serving stack, and the current heuristic grader. Treat the top result as a strong candidate to validate, not as a mathematically settled answer.
 
 ---
 
@@ -65,9 +72,10 @@ MAX_CTX   = 61440                                             # your context win
 ```
 
 If you benchmark a reasoning model such as Qwen3 on vLLM, also set
-`CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}` or a small
-`THINKING_TOKEN_BUDGET`. Otherwise the model can spend all completion tokens in
-`message.reasoning` and leave `message.content` empty.
+`DEFAULT_REASONING_PROFILES` or edit `REASONING_PROFILES` to compare
+non-thinking and thinking modes explicitly. For Qwen3 on vLLM, unbounded
+thinking can spend all completion tokens in `message.reasoning` and leave
+`message.content` empty.
 
 That's it. Everything else is automatic.
 
@@ -78,6 +86,13 @@ Get directional results fast with 30 parameter combinations:
 ```bash
 python runner.py quickscan --mode planner
 python runner.py quickscan --mode coder
+```
+
+To compare direct-answer mode with bounded thinking while keeping 3 requests in
+flight:
+
+```bash
+python runner.py quickscan --mode planner --reasoning-profiles non_thinking,thinking_512 --parallel 3
 ```
 
 ### 3. Run a full coarse sweep (~7–9 hours per mode)
@@ -95,6 +110,12 @@ Or run both sequentially:
 python run_full_sweep.py
 ```
 
+You can also raise request concurrency when your backend supports it:
+
+```bash
+python run_coarse.py planner --reasoning-profiles non_thinking,thinking_512 --parallel 3
+```
+
 ### 4. Analyze results
 
 ```bash
@@ -104,11 +125,53 @@ python report.py planner coder
 
 All results save incrementally to `results/` as JSONL. Sweeps resume automatically if interrupted — no work is lost.
 
+### 5. Validate with a holdout set
+
+Before locking a default configuration, validate the finalists on prompts that were **not** used during tuning.
+
+The current CLI supports this directly:
+
+1. List the available prompt ids for each mode:
+
+```bash
+python run_coarse.py planner --list-prompts
+python run_coarse.py coder --list-prompts
+```
+
+2. Pick a holdout split up front. Example planner holdout: `plan_arch_02,plan_edge_02`
+
+3. Tune on the non-holdout prompts only:
+
+```bash
+python run_coarse.py planner --exclude-prompt-ids plan_arch_02,plan_edge_02
+```
+
+4. Validate the finalists on the holdout prompts without editing prompt files or `FOCUSED_COMBOS`:
+
+```bash
+python run_coarse.py planner --analysis-phase coarse_v2 --top-n 5 --prompt-ids plan_arch_02,plan_edge_02
+```
+
+5. If you want exact finalists instead of the top N rows, use the hashes from the analysis output:
+
+```bash
+python run_coarse.py planner \
+    --analysis-phase coarse_v2 \
+    --param-hashes 9c0a1abc,31fe88d2,77b0ef14 \
+    --prompt-ids plan_arch_02,plan_edge_02
+```
+
+6. Repeat the same pattern for coder mode with its own holdout prompt ids.
+
+7. Pick the default from holdout performance, not from the tuning split alone. If two settings are close, prefer the more stable one across repeated runs.
+
+Custom holdout runs automatically use a separate phase name, so they do not mix results into the default `coarse_v2_*` files unless you explicitly override `--phase-name`.
+
 ---
 
 ## What You Get
 
-The pipeline produces a ranked list of parameter combinations scored by `mean - 0.5 * std + 0.1 * min` — rewarding both quality and consistency. A sample output:
+The pipeline produces a ranked list of parameter combinations scored by `mean - 0.5 * std + 0.1 * min` — rewarding both quality and consistency. Treat that ranking as a candidate shortlist rather than as a formal proof of optimality. A sample output:
 
 ```
  Rank  Combined   Mean±Std        Parameters
@@ -118,7 +181,7 @@ The pipeline produces a ranked list of parameter combinations scored by `mean - 
 ```
 
 The report includes:
-- **Optimal settings** per mode with explanation of why each value was chosen
+- **Best-performing candidate settings** per mode with explanation of why each value was chosen
 - **Parameter sensitivity analysis** — which knobs matter and which are noise
 - **Per-prompt breakdown** — how the model performs across different task types
 - **Stability analysis** — variance and derail rates across stochastic samples
@@ -175,6 +238,20 @@ Add entries to `prompts/planner_prompts.py` or `prompts/coder_prompts.py`:
     "eval_notes": "What a good response should contain",
 }
 ```
+
+For coder prompts with deterministic expected behavior, you can also add:
+
+```python
+{
+    "has_verifiable_output": True,
+    "reference_tests": """
+assert my_function(1) == 2
+assert my_function(5) == 6
+""",
+}
+```
+
+These tests are not shown to the model. The grader runs them after executing the generated code, which makes coder-mode scoring materially more trustworthy for algorithmic and bug-fix tasks.
 
 ### Adjusting scoring weights
 

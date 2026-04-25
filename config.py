@@ -22,16 +22,43 @@ SAMPLES_PER_COMBO = 5
 MAX_TOKENS_PLANNER = 2048
 MAX_TOKENS_CODER = 4096
 
-# ── Reasoning-model controls ──
-# Qwen3 on vLLM enables thinking by default. If you leave it on, the model can
-# spend the full completion budget in `message.reasoning` and never emit a final
-# answer in `message.content`, which this benchmark grades.
-CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
-THINKING_TOKEN_BUDGET = None
+# ── Reasoning-mode sweep profiles ──
+# Treat reasoning mode as a first-class benchmark axis. Each profile expands the
+# sampling combos into a distinct serving configuration.
+DEFAULT_USE_REASONING_AS_RESPONSE = False
+REASONING_PROFILE_ALIASES = {
+    "direct": "non_thinking",
+}
+REASONING_PROFILES = {
+    "non_thinking": {
+        "chat_template_kwargs": {"enable_thinking": False},
+        "thinking_token_budget": None,
+        "use_reasoning_as_response": False,
+        "description": "Disable thinking and score non-thinking answers only.",
+    },
+    "server_default": {
+        "chat_template_kwargs": None,
+        "thinking_token_budget": None,
+        "use_reasoning_as_response": False,
+        "description": "Send no reasoning override and benchmark the provider default.",
+    },
+    "thinking_512": {
+        "chat_template_kwargs": {"enable_thinking": True},
+        "thinking_token_budget": 512,
+        "use_reasoning_as_response": False,
+        "description": "Enable thinking with a 512-token reasoning budget.",
+    },
+    "thinking_1024": {
+        "chat_template_kwargs": {"enable_thinking": True},
+        "thinking_token_budget": 1024,
+        "use_reasoning_as_response": False,
+        "description": "Enable thinking with a 1024-token reasoning budget.",
+    },
+}
+DEFAULT_REASONING_PROFILES = ["non_thinking"]
 
-# Only enable this if your provider puts the usable answer text in `reasoning`
-# instead of `content`. For vLLM/Qwen, the preferred fix is disabling thinking.
-USE_REASONING_AS_RESPONSE = False
+# ── Sweep execution controls ──
+DEFAULT_PARALLEL_REQUESTS = 2
 
 # ── Parameter Grid ──
 # We sweep across a focused grid. The grid is intentionally asymmetric:
@@ -41,7 +68,7 @@ USE_REASONING_AS_RESPONSE = False
 # Each parameter has a "coarse" sweep first, then we zoom into the best region.
 
 PARAM_GRID_COARSE = {
-    "temperature":    [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    "temperature":    [0.0, 0.4, 0.6, 0.7, 0.8, 1.0],
     "top_p":          [0.7, 0.85, 0.95, 1.0],
     "top_k":          [0, 20, 50],                 # 0 = disabled
     "min_p":          [0.0, 0.05, 0.1],
@@ -189,15 +216,67 @@ def generate_combos(grid):
             combos.append(combo)
     return combos
 
+
+def normalize_reasoning_profile(profile_name):
+    """Map legacy reasoning profile names to their canonical form."""
+    if profile_name is None:
+        return None
+    return REASONING_PROFILE_ALIASES.get(profile_name, profile_name)
+
+
+def normalize_reasoning_params(params):
+    """Return a shallow copy of params with canonical reasoning profile names."""
+    normalized = dict(params)
+    if "reasoning_profile" in normalized:
+        normalized["reasoning_profile"] = normalize_reasoning_profile(normalized["reasoning_profile"])
+    return normalized
+
+
+def resolve_reasoning_profiles(reasoning_profiles=None):
+    """Validate requested reasoning profiles and return them in order."""
+    raw_profile_names = reasoning_profiles or DEFAULT_REASONING_PROFILES
+    profile_names = []
+    seen = set()
+    for name in raw_profile_names:
+        normalized = normalize_reasoning_profile(name)
+        if normalized not in seen:
+            profile_names.append(normalized)
+            seen.add(normalized)
+
+    missing = [name for name in profile_names if name not in REASONING_PROFILES]
+    if missing:
+        known = ", ".join(sorted(REASONING_PROFILES))
+        missing_str = ", ".join(missing)
+        raise ValueError(f"Unknown reasoning profile(s): {missing_str}. Known profiles: {known}")
+    return list(profile_names)
+
+
+def expand_param_combos(param_combos, reasoning_profiles=None):
+    """Cross product sampling combos with the selected reasoning profiles."""
+    expanded = []
+    for combo in param_combos:
+        for profile_name in resolve_reasoning_profiles(reasoning_profiles):
+            profile = REASONING_PROFILES[profile_name]
+            expanded_combo = dict(combo)
+            expanded_combo["reasoning_profile"] = profile_name
+            expanded_combo["chat_template_kwargs"] = profile.get("chat_template_kwargs")
+            expanded_combo["thinking_token_budget"] = profile.get("thinking_token_budget")
+            expanded_combo["use_reasoning_as_response"] = profile.get(
+                "use_reasoning_as_response",
+                DEFAULT_USE_REASONING_AS_RESPONSE,
+            )
+            expanded.append(expanded_combo)
+    return expanded
+
 # ── Scoring weights by mode ──
 SCORING_WEIGHTS = {
     "planner": {
-        "structure":       0.20,  # Has clear sections, numbered steps, hierarchy
-        "completeness":    0.20,  # Covers all aspects of the problem
-        "actionability":   0.20,  # Steps are concrete and executable
+        "structure":       0.10,  # Formatting matters, but less than substance
+        "completeness":    0.24,  # Covers all aspects of the problem
+        "actionability":   0.24,  # Steps are concrete and executable
         "coherence":       0.15,  # Logical flow, no contradictions
         "conciseness":     0.10,  # Not bloated or repetitive
-        "no_hallucination": 0.15, # Doesn't invent APIs/tools/constraints
+        "no_hallucination": 0.17, # Doesn't invent APIs/tools/constraints
     },
     "coder": {
         "correctness":     0.30,  # Code would actually work

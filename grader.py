@@ -19,6 +19,15 @@ import tempfile
 import textwrap
 from dataclasses import asdict, dataclass, field
 
+EVAL_NOTE_STOPWORDS = {
+    "a", "an", "and", "all", "approach", "be", "brief", "briefly", "bug", "bugs",
+    "by", "clear", "comprehensive", "consider", "correct", "cover", "covers", "describe",
+    "edge", "exact", "exactly", "for", "full", "good", "handle", "have", "hint", "hints",
+    "identify", "include", "incremental", "is", "it", "its", "mention", "must", "need",
+    "needs", "no", "of", "on", "or", "proper", "provide", "raise", "separate", "should",
+    "strategy", "suggest", "the", "them", "to", "use", "uses", "using", "valid", "working",
+}
+
 
 @dataclass
 class GradeResult:
@@ -47,7 +56,75 @@ def extract_code_blocks(text: str) -> list[str]:
     return []
 
 
-def execute_code_safely(code: str, timeout: int = 15) -> dict:
+def _contains_eval_token(text: str, token: str) -> bool:
+    """Match alphanumeric tokens by word boundary and symbolic tokens by substring."""
+    if re.fullmatch(r'[a-z0-9_]+', token):
+        variants = {token}
+        if len(token) > 3:
+            variants.update({token + "s", token + "es", token + "ed", token + "ing"})
+        if token.endswith("y") and len(token) > 3:
+            variants.add(token[:-1] + "ies")
+        if token.endswith("ing") and len(token) > 4:
+            variants.add(token[:-3])
+        return any(bool(re.search(rf'\b{re.escape(variant)}\b', text)) for variant in variants)
+    return token in text
+
+
+def score_eval_note_coverage(text: str, eval_notes: str) -> tuple[float, list[str]]:
+    """Turn eval_notes into lightweight rubric checks and measure coverage."""
+    if not isinstance(eval_notes, str) or not eval_notes.strip():
+        return 0.0, []
+
+    normalized = text.lower()
+    requirements = []
+    seen = set()
+
+    for clause in re.split(r'[.,;:]', eval_notes.lower()):
+        clause = clause.strip()
+        if not clause:
+            continue
+        for alternative in re.split(r'\bor\b', clause):
+            tokens = [
+                token for token in re.findall(r"[a-z][a-z0-9_+-]*", alternative)
+                if token not in EVAL_NOTE_STOPWORDS and len(token) > 1
+            ]
+            if not tokens:
+                continue
+            key = tuple(tokens)
+            if key in seen:
+                continue
+            seen.add(key)
+            requirements.append(tokens)
+
+    if not requirements:
+        return 0.0, []
+
+    matched_requirements = []
+    for tokens in requirements:
+        matched_tokens = sum(1 for token in tokens if _contains_eval_token(normalized, token))
+        threshold = 1 if len(tokens) <= 2 else 2
+        if matched_tokens >= min(threshold, len(tokens)):
+            matched_requirements.append(" ".join(tokens))
+
+    return len(matched_requirements) / len(requirements), matched_requirements
+
+
+def build_execution_source(code: str, reference_tests: str | None = None) -> str:
+    """Wrap model code and hidden tests in a controlled execution harness."""
+    normalized_reference_tests = textwrap.dedent(reference_tests or "").strip()
+    return textwrap.dedent(
+        f"""
+        MODEL_CODE = {code!r}
+        REFERENCE_TESTS = {normalized_reference_tests!r}
+        namespace = {{"__name__": "__grader__", "__grader_model_code__": MODEL_CODE}}
+        exec(compile(MODEL_CODE, "<model>", "exec"), namespace)
+        if REFERENCE_TESTS:
+            exec(compile(REFERENCE_TESTS, "<reference_tests>", "exec"), namespace)
+        """
+    )
+
+
+def execute_code_safely(code: str, timeout: int = 15, reference_tests: str | None = None) -> dict:
     """Execute Python code in a sandboxed subprocess. Returns execution details."""
     result = {
         "ran": False,
@@ -59,17 +136,23 @@ def execute_code_safely(code: str, timeout: int = 15) -> dict:
         "tests_passed": 0,
         "assertions_found": 0,
         "assertions_passed": 0,
+        "reference_tests_found": 0,
+        "reference_assertions_found": 0,
     }
 
     # Count assertions in the code before running
     result["assertions_found"] = len(re.findall(r'\bassert\b', code))
     result["tests_found"] = len(re.findall(r'\bdef\s+test_\w+', code))
+    normalized_reference_tests = textwrap.dedent(reference_tests or "").strip()
+    result["reference_assertions_found"] = len(re.findall(r'\bassert\b', normalized_reference_tests))
+    result["reference_tests_found"] = len(re.findall(r'\bdef\s+test_\w+', normalized_reference_tests))
 
     try:
+        execution_source = build_execution_source(code, normalized_reference_tests)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False,
                                           dir=tempfile.gettempdir(),
                                           encoding='utf-8') as f:
-            f.write(code)
+            f.write(execution_source)
             f.flush()
             tmpfile = f.name
 
@@ -112,11 +195,9 @@ def execute_code_safely(code: str, timeout: int = 15) -> dict:
             else:
                 result["error_type"] = "runtime_error"
 
-            # Count which assertions passed (rough heuristic)
-            # If exit code != 0, the first assertion failure stops execution
-            # Count print() outputs as a proxy for how far it got
-            result["assertions_passed"] = max(0,
-                result["assertions_found"] - 1)  # at least one failed
+            # Without a dedicated test runner, we cannot infer how many assertions
+            # passed before the first failure.
+            result["assertions_passed"] = 0
         else:
             result["assertions_passed"] = result["assertions_found"]
 
@@ -202,6 +283,14 @@ def grade_planner(response: str, prompt_meta: dict) -> GradeResult:
         if re.search(rf'\b{kw}', text, re.IGNORECASE):
             topic_keywords.add(kw)
     completeness = min(completeness + len(topic_keywords) * 0.02, 1.0)
+
+    eval_note_coverage, matched_eval_requirements = score_eval_note_coverage(
+        text,
+        prompt_meta.get("eval_notes", ""),
+    )
+    completeness = min(completeness + 0.2 * eval_note_coverage, 1.0)
+    if prompt_meta.get("eval_notes") and eval_note_coverage < 0.34:
+        result.flags.append("low_eval_note_coverage")
 
     result.dimensions["completeness"] = completeness
 
@@ -358,38 +447,48 @@ def grade_coder(response: str, prompt_meta: dict) -> GradeResult:
     correctness = 0.0
     exec_result = None
 
+    requires_verifiable_checks = bool(prompt_meta.get("has_verifiable_output"))
+
     if all_code and parseable >= 0.5:
         # Try to execute the code
-        exec_result = execute_code_safely(all_code, timeout=15)
+        exec_result = execute_code_safely(
+            all_code,
+            timeout=15,
+            reference_tests=prompt_meta.get("reference_tests"),
+        )
         result.exec_result = exec_result
+        has_self_checks = bool(exec_result["assertions_found"] or exec_result["tests_found"])
+        has_reference_checks = bool(
+            exec_result["reference_assertions_found"] or exec_result["reference_tests_found"]
+        )
+        has_verification_checks = has_self_checks or has_reference_checks
 
         if exec_result["ran"]:
             if exec_result["exit_code"] == 0:
                 # Clean execution!
-                correctness = 0.6
+                correctness = 0.55
 
-                # Bonus for assertions that passed
-                if exec_result["assertions_found"] > 0:
+                # Hidden reference checks count as strong verification; model-supplied
+                # checks still count, but we no longer require them when hidden tests exist.
+                if has_reference_checks or has_self_checks:
                     correctness += 0.25
-                # Bonus for producing output (print statements ran)
-                if exec_result["stdout"].strip():
-                    correctness += 0.10
                 # Small bonus for no stderr warnings
                 if not exec_result["stderr"].strip():
                     correctness += 0.05
+                if requires_verifiable_checks and not has_verification_checks:
+                    correctness = min(correctness, 0.35)
+                    result.flags.append("unverified_clean_run")
 
             elif exec_result["error_type"] == "import_error":
                 # Code structure is right but missing a dependency
-                correctness = 0.35
+                correctness = 0.25
                 result.flags.append(f"import_error: {exec_result['stderr'][:80]}")
 
             elif exec_result["error_type"] == "assertion_error":
-                # Logic error but code runs
-                correctness = 0.30
-                # Credit for assertions that did pass
-                if exec_result["assertions_found"] > 1:
-                    pass_ratio = max(0, exec_result["assertions_found"] - 1) / exec_result["assertions_found"]
-                    correctness += pass_ratio * 0.15
+                # Logic error but code runs. Do not infer partially passed tests.
+                correctness = 0.15
+                if has_reference_checks:
+                    result.flags.append("reference_test_failed")
                 result.flags.append("assertion_failed")
 
             elif exec_result["error_type"] == "timeout":
@@ -409,13 +508,6 @@ def grade_coder(response: str, prompt_meta: dict) -> GradeResult:
     elif all_code:
         # Has code but doesn't parse
         correctness = 0.05
-
-    # Heuristic bonuses (on top of execution)
-    if all_code:
-        has_func = bool(re.search(r'\bdef\s+\w+', all_code))
-        has_class = bool(re.search(r'\bclass\s+\w+', all_code))
-        if has_func or has_class:
-            correctness = min(correctness + 0.05, 1.0)
 
     result.dimensions["correctness"] = min(correctness, 1.0)
 
@@ -565,6 +657,14 @@ def grade_coder(response: str, prompt_meta: dict) -> GradeResult:
         # Didn't go off on tangents about what it can/can't do
         if not re.search(r'\b(note that|please note|keep in mind|disclaimer)\b', text, re.IGNORECASE):
             follows += 0.10
+
+        eval_note_coverage, matched_eval_requirements = score_eval_note_coverage(
+            text,
+            prompt_meta.get("eval_notes", ""),
+        )
+        follows += 0.15 * eval_note_coverage
+        if prompt_meta.get("eval_notes") and eval_note_coverage < 0.34:
+            result.flags.append("low_eval_note_coverage")
 
     result.dimensions["follows_spec"] = min(follows, 1.0)
 
