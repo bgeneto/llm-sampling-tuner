@@ -134,6 +134,12 @@ python runner.py quickscan --mode planner --reasoning-profiles thinking_custom -
 If you pass `--thinking-token-budget` without `--reasoning-profiles`, the CLI
 uses the custom thinking profile automatically.
 
+Reasoning tokens are part of the same generated-token allowance as the visible
+answer. When a thinking budget is active, the runner treats
+`MAX_TOKENS_PLANNER`/`MAX_TOKENS_CODER` as the visible-answer budget and sends
+`max_tokens = thinking_token_budget + visible_answer_budget`, so thinking cannot
+consume the entire response.
+
 ### 3. Run a full coarse sweep (~12–14 hours per mode)
 
 Test 25 strategically chosen parameter combos across all prompts:

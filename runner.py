@@ -100,13 +100,33 @@ def parse_reasoning_profiles_arg(raw_value: str | None) -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
+def resolve_request_max_tokens(answer_max_tokens: int, params: dict) -> int:
+    """Return completion max_tokens with room for reasoning plus visible answer.
+
+    Reasoning tokens consume the same completion budget as visible content.
+    Treat the mode max token setting as the visible-answer budget, then add the
+    thinking budget when thinking is enabled.
+    """
+    chat_template_kwargs = params.get("chat_template_kwargs") or {}
+    thinking_budget = params.get("thinking_token_budget")
+    if not chat_template_kwargs.get("enable_thinking") or thinking_budget is None:
+        return answer_max_tokens
+
+    thinking_budget = int(thinking_budget)
+    if thinking_budget < 1:
+        raise ValueError("thinking_token_budget must be at least 1")
+    if answer_max_tokens < 1:
+        raise ValueError("answer max_tokens must be at least 1")
+    return thinking_budget + answer_max_tokens
+
+
 def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
                    timeout: int = 180) -> dict:
     """Call LM Studio chat completions API. Returns raw response dict."""
     payload = {
         "model": MODEL_ID,
         "messages": messages,
-        "max_tokens": max_tokens,
+        "max_tokens": resolve_request_max_tokens(max_tokens, params),
         "stream": False,
     }
     for key, value in params.items():
