@@ -63,13 +63,22 @@ It is **not** a proof of a global optimum. The final ranking depends on your pro
 
 ### 1. Configure your model
 
-Open `config.py` and set two values:
+Open `config.py` and set the endpoint values you need:
 
 ```python
 API_BASE  = "http://localhost:1234/v1"                        # your API endpoint
 MODEL_ID  = "mistralai_devstral-small-2-24b-instruct-2512"   # your model ID
+API_KEY   = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")  # optional bearer token
 MAX_CTX   = 61440                                             # your context window
 ```
+
+For protected hosted endpoints, export a token before running:
+
+```bash
+export LLM_API_KEY="your-provider-token"
+```
+
+If you already use `OPENAI_API_KEY`, that works too.
 
 If you benchmark a reasoning model such as Qwen3 on vLLM, also set
 `DEFAULT_REASONING_PROFILES` or edit `REASONING_PROFILES` to compare
@@ -295,7 +304,7 @@ Works with any OpenAI-compatible API that supports these sampling parameters:
 | **vLLM** | Compatible |
 | **llama.cpp server** | Compatible |
 | **text-generation-webui** (with openai ext) | Compatible |
-| **OpenRouter / Together / Fireworks** | Compatible (set API_BASE + add API key handling) |
+| **OpenRouter / Together / Fireworks** | Compatible (set API_BASE + `LLM_API_KEY` or `OPENAI_API_KEY`) |
 
 ---
 

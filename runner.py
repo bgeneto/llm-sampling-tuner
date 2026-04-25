@@ -29,7 +29,7 @@ from pathlib import Path
 
 import requests
 
-from config import (API_BASE, DEFAULT_PARALLEL_REQUESTS,
+from config import (API_BASE, API_KEY, DEFAULT_PARALLEL_REQUESTS,
                     DEFAULT_REASONING_PROFILES,
                     DEFAULT_USE_REASONING_AS_RESPONSE, MAX_TOKENS_CODER,
                     MAX_TOKENS_PLANNER, MODEL_ID, PARAM_COMBOS_STRATEGIC,
@@ -94,9 +94,14 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
     if payload.get("top_k") == 0:
         del payload["top_k"]
 
+    headers = None
+    if API_KEY:
+        headers = {"Authorization": f"Bearer {API_KEY}"}
+
     resp = requests.post(
         f"{API_BASE}/chat/completions",
         json=payload,
+        headers=headers,
         timeout=timeout,
     )
     resp.raise_for_status()

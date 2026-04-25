@@ -6,12 +6,14 @@ OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, text-generation-webui, etc.
 """
 
 import itertools
+import os
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
 API_BASE  = "http://localhost:8001/v1"                           # OpenAI-compatible endpoint
 MODEL_ID  = "qwen-gpu"      # exact model ID served by the endpoint
+API_KEY   = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")  # optional bearer token for protected endpoints
 MAX_CTX   = 61440                                                # context window (tokens)
 # ═══════════════════════════════════════════════════════════════════════════════
 
