@@ -35,37 +35,37 @@ from runner import (analyze_coarse_results, format_param_combo, param_hash,
 # Selected to maximize information gain based on quickscan data
 FOCUSED_COMBOS = [
     # Greedy baselines (deterministic reference points)
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
+    {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.0},
+    {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.1},
 
     # Bridge temp check (T=0.7)
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.0, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.80, "top_k": 20, "min_p": 0.00, "repeat_penalty": 1.00},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 10,  "min_p": 0.0, "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.80, "top_k": 10, "min_p": 0.00, "repeat_penalty": 1.00},
+    {"temperature": 0.7, "top_p": 0.85, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.1},
 
     # Med-low (T=0.4) — densely sampled, likely optimal region
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 0, "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.85, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.1},
 
     # Medium (T=0.6) — balanced
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.85, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
     dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 0, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
 
     # Med-high (T=0.8) — pushing creativity
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 0, "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 0, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 0, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 10, "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.8, "top_p": 0.85, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
 
     # High (T=1.0) — stress test with guardrails
     dict(QWEN3_RECOMMENDED_COMBOS["default"]),
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 0, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.95, "top_k": 0, "min_p": 0.1,  "repeat_penalty": 1.15},
+    {"temperature": 1.0, "top_p": 0.85, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.15},
 ]
 
 
