@@ -204,6 +204,8 @@ def main():
     parser = argparse.ArgumentParser(description="Focused coarse sweep runner")
     parser.add_argument("mode", choices=["planner", "coder"])
     parser.add_argument("--analyze", action="store_true", help="Analyze only; do not run new requests")
+    parser.add_argument("--complete-only", action="store_true",
+                        help="When analyzing, rank only parameter combos with every expected run present")
     parser.add_argument("--list-prompts", action="store_true",
                         help="List prompt ids for the selected mode and exit")
     parser.add_argument("--reasoning-profiles",
@@ -341,6 +343,7 @@ def main():
         expected_prompts=prompts,
         expected_param_combos=expanded_combos,
         n_samples=n_samples,
+        require_complete=args.complete_only,
     )
 
 

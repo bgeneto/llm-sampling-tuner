@@ -456,7 +456,7 @@ def analyze_coarse_results(
     expected_prompts: list[dict] | None = None,
     expected_param_combos: list[dict] | None = None,
     n_samples: int | None = None,
-    require_complete: bool = True,
+    require_complete: bool = False,
 ) -> list[dict]:
     """Analyze coarse results and return top-N param combos."""
     results_file = RESULTS_DIR / f"{phase_name}_{mode}.jsonl"
@@ -475,17 +475,22 @@ def analyze_coarse_results(
 
     expected_keys = None
     expected_params_by_hash = {}
+    expected_runs_by_hash = {}
     if expected_prompts is not None and expected_param_combos is not None and n_samples is not None:
         expected_keys = expected_run_keys(expected_prompts, expected_param_combos, n_samples)
         expected_params_by_hash = {
             param_hash(params): normalize_reasoning_params(params)
             for params in expected_param_combos
         }
+        expected_runs_by_hash = defaultdict(int)
+        for _prompt_id, combo_hash, _sample_idx in expected_keys:
+            expected_runs_by_hash[combo_hash] += 1
 
     # Group by param combo. Keep the latest successful row for duplicate run keys
     # so retried JSONL rows cannot overweight a prompt/sample.
     valid_by_key = {}
     errors_matching_expected = 0
+    error_keys_matching_expected = set()
     unexpected_valid = 0
     by_params = defaultdict(list)
     for r in results:
@@ -499,23 +504,49 @@ def analyze_coarse_results(
         if "error" in r:
             if expected_keys is None or key in expected_keys:
                 errors_matching_expected += 1
+                error_keys_matching_expected.add(key)
             continue
         valid_by_key[key] = r
 
     if expected_keys is not None:
         missing_keys = expected_keys - set(valid_by_key)
+        missing_by_hash = defaultdict(int)
+        for _prompt_id, combo_hash, _sample_idx in missing_keys:
+            missing_by_hash[combo_hash] += 1
+        complete_combo_count = sum(
+            1 for combo_hash, expected_n in expected_runs_by_hash.items()
+            if expected_n - missing_by_hash.get(combo_hash, 0) == expected_n
+        )
+        incomplete_combo_count = len(expected_runs_by_hash) - complete_combo_count
+
+        print(
+            f"  Analysis coverage: analyzed {len(valid_by_key)}/{len(expected_keys)} "
+            f"expected successful run(s)"
+        )
+        print(
+            f"  Combo coverage: {complete_combo_count}/{len(expected_runs_by_hash)} "
+            f"complete, {incomplete_combo_count} partial/incomplete"
+        )
         if missing_keys:
-            missing_by_hash = defaultdict(int)
-            for _prompt_id, combo_hash, _sample_idx in missing_keys:
-                missing_by_hash[combo_hash] += 1
             print(
-                f"  WARNING: {len(missing_keys)} expected run(s) are missing or errored; "
-                f"{len(missing_by_hash)} combo(s) incomplete"
+                f"  Missing or errored expected run(s): {len(missing_keys)} "
+                f"across {len(missing_by_hash)} combo(s)"
             )
         if unexpected_valid:
             print(f"  Ignored {unexpected_valid} successful result(s) outside the requested analysis set")
         if errors_matching_expected:
-            print(f"  Found {errors_matching_expected} error row(s) in the requested analysis set")
+            print(
+                f"  Found {errors_matching_expected} error row(s) "
+                f"covering {len(error_keys_matching_expected)} expected run key(s)"
+            )
+        if require_complete:
+            print("  Strict mode: ranking complete combos only")
+        else:
+            print("  Partial mode: ranking all combos with at least one successful run")
+    else:
+        print(f"  Analysis coverage: analyzed {len(valid_by_key)} successful run(s)")
+        if errors_matching_expected:
+            print(f"  Found {errors_matching_expected} error row(s)")
 
     for key, r in valid_by_key.items():
         _prompt_id, combo_hash, _sample_idx = key
@@ -524,8 +555,8 @@ def analyze_coarse_results(
     # Score each param combo: aggregate across all prompts and samples
     combo_scores = []
     for phash, runs in by_params.items():
+        expected_n = expected_runs_by_hash.get(phash)
         if expected_keys is not None and require_complete:
-            expected_n = sum(1 for _prompt_id, combo_hash, _sample_idx in expected_keys if combo_hash == phash)
             if len(runs) < expected_n:
                 continue
         scores = [r["grade"]["weighted_score"] for r in runs]
@@ -545,13 +576,15 @@ def analyze_coarse_results(
             "max": round(max_score, 4),
             "combined": round(combined, 4),
             "n_runs": len(runs),
-            "complete": True,
+            "expected_runs": expected_n,
+            "missing_runs": max((expected_n or len(runs)) - len(runs), 0),
+            "complete": expected_n is None or len(runs) >= expected_n,
         })
 
     combo_scores.sort(key=lambda x: x["combined"], reverse=True)
 
     if not combo_scores:
-        print("\n  No complete param combos to analyze; analysis file was not updated")
+        print("\n  No matching successful runs to analyze; analysis file was not updated")
         return []
 
     # Save analysis
@@ -563,12 +596,17 @@ def analyze_coarse_results(
 
     # Print top 10
     print(f"\n  Top 10 param combos for {mode}:")
-    print(f"  {'Rank':<5} {'Combined':<10} {'Mean':<8} {'Std':<8} {'Min':<8} {'Params'}")
-    print(f"  {'-'*80}")
+    print(f"  {'Rank':<5} {'Combined':<10} {'Mean':<8} {'Std':<8} {'Min':<8} {'Runs':<11} {'Params'}")
+    print(f"  {'-'*94}")
     for i, cs in enumerate(combo_scores[:10]):
         p = cs["params"]
         param_str = format_param_combo(p)
-        print(f"  {i+1:<5} {cs['combined']:<10.4f} {cs['mean']:<8.4f} {cs['std']:<8.4f} {cs['min']:<8.4f} {param_str}")
+        expected_n = cs.get("expected_runs")
+        run_str = f"{cs['n_runs']}/{expected_n}" if expected_n else str(cs["n_runs"])
+        print(
+            f"  {i+1:<5} {cs['combined']:<10.4f} {cs['mean']:<8.4f} "
+            f"{cs['std']:<8.4f} {cs['min']:<8.4f} {run_str:<11} {param_str}"
+        )
 
     return combo_scores[:10]
 

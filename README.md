@@ -168,7 +168,7 @@ python run_coarse.py planner --analyze
 python report.py planner coder
 ```
 
-All results save incrementally to `results/` as JSONL. Sweeps resume automatically if interrupted, retry previous error rows by default, and analysis excludes incomplete prompt/parameter/sample sets when the expected sweep shape is known.
+All results save incrementally to `results/` as JSONL. Sweeps resume automatically if interrupted and retry previous error rows by default. `--analyze` ranks existing successful rows even when the sweep is partial, and reports expected vs analyzed run counts. Use `--complete-only` if you want to rank only parameter combos with every expected run present.
 
 ### 5. Validate with a holdout set
 
