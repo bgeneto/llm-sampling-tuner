@@ -23,6 +23,7 @@ import os
 import sys
 import time
 import traceback
+from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
@@ -49,6 +50,25 @@ def param_hash(params: dict) -> str:
     """Short hash for a param combo, for filenames."""
     s = json.dumps(normalize_reasoning_params(params), sort_keys=True)
     return hashlib.md5(s.encode()).hexdigest()[:8]
+
+
+def run_key(prompt_id: str, params: dict, sample_idx: int) -> tuple[str, str, int]:
+    """Stable key for one prompt/parameter/sample execution."""
+    return (prompt_id, param_hash(params), sample_idx)
+
+
+def expected_run_keys(
+    prompts: list[dict],
+    param_combos: list[dict],
+    n_samples: int,
+) -> set[tuple[str, str, int]]:
+    """Build the exact run-key set for a sweep request."""
+    return {
+        run_key(prompt["id"], params, sample_idx)
+        for prompt in prompts
+        for params in param_combos
+        for sample_idx in range(n_samples)
+    }
 
 
 def format_param_combo(params: dict) -> str:
@@ -236,6 +256,7 @@ def run_sweep_phase(
     phase_name: str,
     resume_from: str | None = None,
     parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
+    retry_errors: bool = True,
 ) -> list[dict]:
     """Run a full sweep: prompts × param_combos × n_samples.
 
@@ -243,9 +264,12 @@ def run_sweep_phase(
     """
     parallel_requests = max(1, parallel_requests)
     results_file = RESULTS_DIR / f"{phase_name}_{mode}.jsonl"
+    target_keys = expected_run_keys(prompts, param_combos, n_samples)
 
     # Load existing results for resume
     existing = set()
+    existing_error_keys = set()
+    ignored_existing = 0
     if resume_from and Path(resume_from).exists():
         results_file = Path(resume_from)
     if results_file.exists():
@@ -253,13 +277,24 @@ def run_sweep_phase(
             for line in f:
                 try:
                     r = json.loads(line)
-                    key = (r["prompt_id"], param_hash(r["params"]), r.get("sample_idx", 0))
+                    key = run_key(r["prompt_id"], r["params"], r.get("sample_idx", 0))
+                    if key not in target_keys:
+                        ignored_existing += 1
+                        continue
+                    if "error" in r and retry_errors:
+                        existing_error_keys.add(key)
+                        continue
                     existing.add(key)
                 except:
                     pass
-        print(f"  Resuming: {len(existing)} results already collected")
+        existing_errors = len(existing_error_keys - existing)
+        print(f"  Resuming: {len(existing)} matching result(s) already collected")
+        if existing_errors:
+            print(f"  Retrying {existing_errors} previous error result(s)")
+        if ignored_existing:
+            print(f"  Ignoring {ignored_existing} result(s) from other prompt/param/sample sets")
 
-    total = len(prompts) * len(param_combos) * n_samples
+    total = len(target_keys)
     done = len(existing)
     print(f"\n{'='*60}")
     print(f"  Phase: {phase_name} | Mode: {mode}")
@@ -360,7 +395,14 @@ def run_sweep_phase(
     return all_results
 
 
-def analyze_coarse_results(mode: str, phase_name: str) -> list[dict]:
+def analyze_coarse_results(
+    mode: str,
+    phase_name: str,
+    expected_prompts: list[dict] | None = None,
+    expected_param_combos: list[dict] | None = None,
+    n_samples: int | None = None,
+    require_complete: bool = True,
+) -> list[dict]:
     """Analyze coarse results and return top-N param combos."""
     results_file = RESULTS_DIR / f"{phase_name}_{mode}.jsonl"
     if not results_file.exists():
@@ -376,17 +418,61 @@ def analyze_coarse_results(mode: str, phase_name: str) -> list[dict]:
             except:
                 pass
 
-    # Group by param combo
-    from collections import defaultdict
+    expected_keys = None
+    expected_params_by_hash = {}
+    if expected_prompts is not None and expected_param_combos is not None and n_samples is not None:
+        expected_keys = expected_run_keys(expected_prompts, expected_param_combos, n_samples)
+        expected_params_by_hash = {
+            param_hash(params): normalize_reasoning_params(params)
+            for params in expected_param_combos
+        }
+
+    # Group by param combo. Keep the latest successful row for duplicate run keys
+    # so retried JSONL rows cannot overweight a prompt/sample.
+    valid_by_key = {}
+    errors_matching_expected = 0
+    unexpected_valid = 0
     by_params = defaultdict(list)
     for r in results:
-        if "error" not in r:
-            key = param_hash(r["params"])
-            by_params[key].append(r)
+        if "params" not in r or "prompt_id" not in r:
+            continue
+        key = run_key(r["prompt_id"], r["params"], r.get("sample_idx", 0))
+        if expected_keys is not None and key not in expected_keys:
+            if "error" not in r:
+                unexpected_valid += 1
+            continue
+        if "error" in r:
+            if expected_keys is None or key in expected_keys:
+                errors_matching_expected += 1
+            continue
+        valid_by_key[key] = r
+
+    if expected_keys is not None:
+        missing_keys = expected_keys - set(valid_by_key)
+        if missing_keys:
+            missing_by_hash = defaultdict(int)
+            for _prompt_id, combo_hash, _sample_idx in missing_keys:
+                missing_by_hash[combo_hash] += 1
+            print(
+                f"  WARNING: {len(missing_keys)} expected run(s) are missing or errored; "
+                f"{len(missing_by_hash)} combo(s) incomplete"
+            )
+        if unexpected_valid:
+            print(f"  Ignored {unexpected_valid} successful result(s) outside the requested analysis set")
+        if errors_matching_expected:
+            print(f"  Found {errors_matching_expected} error row(s) in the requested analysis set")
+
+    for key, r in valid_by_key.items():
+        _prompt_id, combo_hash, _sample_idx = key
+        by_params[combo_hash].append(r)
 
     # Score each param combo: aggregate across all prompts and samples
     combo_scores = []
     for phash, runs in by_params.items():
+        if expected_keys is not None and require_complete:
+            expected_n = sum(1 for _prompt_id, combo_hash, _sample_idx in expected_keys if combo_hash == phash)
+            if len(runs) < expected_n:
+                continue
         scores = [r["grade"]["weighted_score"] for r in runs]
         mean = sum(scores) / len(scores)
         std = (sum((s - mean) ** 2 for s in scores) / len(scores)) ** 0.5
@@ -396,7 +482,7 @@ def analyze_coarse_results(mode: str, phase_name: str) -> list[dict]:
         # Combined score: mean - 0.5*std (penalize variance) + 0.1*min (reward floor)
         combined = mean - 0.5 * std + 0.1 * min_score
         combo_scores.append({
-            "params": runs[0]["params"],
+            "params": expected_params_by_hash.get(phash, runs[0]["params"]),
             "param_hash": phash,
             "mean": round(mean, 4),
             "std": round(std, 4),
@@ -404,6 +490,7 @@ def analyze_coarse_results(mode: str, phase_name: str) -> list[dict]:
             "max": round(max_score, 4),
             "combined": round(combined, 4),
             "n_runs": len(runs),
+            "complete": True,
         })
 
     combo_scores.sort(key=lambda x: x["combined"], reverse=True)

@@ -1,12 +1,12 @@
 """
 Focused Coarse Sweep
 ====================
-Runs 15 strategically chosen param combos across ALL prompts with 2 samples each.
+Runs 25 strategically chosen param combos across ALL prompts with 2 samples each.
 
-Planner: 15 combos × 9 prompts × 2 samples = 270 calls (~7.5 hours at 100s/call)
-Coder:   15 combos × 11 prompts × 2 samples = 330 calls (~9 hours at 100s/call)
+Planner: 25 combos × 9 prompts × 2 samples = 450 calls (~12.5 hours at 100s/call)
+Coder:   25 combos × 10 prompts × 2 samples = 500 calls (~13.9 hours at 100s/call)
 
-Total: ~600 calls (~16 hours). Run one mode at a time.
+Total: ~950 calls (~26.4 hours). Run one mode at a time.
 
 Usage:
   python run_coarse.py planner
@@ -31,7 +31,7 @@ from prompts.planner_prompts import PLANNER_PROMPTS
 from runner import (analyze_coarse_results, format_param_combo, param_hash,
                     parse_reasoning_profiles_arg, run_sweep_phase)
 
-# 15 param combos spanning the full interesting space
+# 25 param combos spanning the full interesting space
 # Selected to maximize information gain based on quickscan data
 FOCUSED_COMBOS = [
     # Greedy baselines (deterministic reference points)
@@ -313,7 +313,13 @@ def main():
         )
 
     print("\n>>> Analysis:")
-    analyze_coarse_results(args.mode, phase_name)
+    analyze_coarse_results(
+        args.mode,
+        phase_name,
+        expected_prompts=prompts,
+        expected_param_combos=expanded_combos,
+        n_samples=n_samples,
+    )
 
 
 if __name__ == "__main__":

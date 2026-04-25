@@ -47,8 +47,14 @@ def sortable_value(value):
 
 def build_combo_scores(results: list[dict]):
     """Group results by full parameter combo and compute aggregate metrics."""
-    by_params = defaultdict(list)
+    latest_by_run = {}
     for r in results:
+        key = json.dumps(normalize_reasoning_params(r["params"]), sort_keys=True)
+        run_key = (r.get("prompt_id"), key, r.get("sample_idx", 0))
+        latest_by_run[run_key] = r
+
+    by_params = defaultdict(list)
+    for r in latest_by_run.values():
         key = json.dumps(normalize_reasoning_params(r["params"]), sort_keys=True)
         by_params[key].append(r)
 
@@ -130,6 +136,13 @@ def generate_report(mode: str):
 
     combo_scores, by_params = build_combo_scores(valid)
     profiles = sorted({get_reasoning_profile(r) for r in valid}, key=sortable_value)
+    run_counts = sorted({cs["n"] for cs in combo_scores})
+
+    if len(run_counts) > 1:
+        print(
+            f"\n  WARNING: parameter combinations have uneven run counts "
+            f"({run_counts[0]}-{run_counts[-1]}). Use run_coarse.py analysis for strict completeness checks."
+        )
 
     if profiles:
         print(f"\n  REASONING PROFILES OBSERVED: {', '.join(profiles)}")

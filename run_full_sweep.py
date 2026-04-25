@@ -37,7 +37,13 @@ def run_mode(mode, reasoning_profiles, parallel_requests):
         parallel_requests=parallel_requests,
     )
     print(f"\n>>> Analysis for {mode}:")
-    analyze_coarse_results(mode, "coarse_v2")
+    analyze_coarse_results(
+        mode,
+        "coarse_v2",
+        expected_prompts=prompts,
+        expected_param_combos=combos,
+        n_samples=N_SAMPLES,
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run planner/coder sweeps end-to-end")

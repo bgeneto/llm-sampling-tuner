@@ -14,10 +14,14 @@ import ast
 import json
 import os
 import re
+import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 import textwrap
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 EVAL_NOTE_STOPWORDS = {
     "a", "an", "and", "all", "approach", "be", "brief", "briefly", "bug", "bugs",
@@ -27,6 +31,107 @@ EVAL_NOTE_STOPWORDS = {
     "needs", "no", "of", "on", "or", "proper", "provide", "raise", "separate", "should",
     "strategy", "suggest", "the", "them", "to", "use", "uses", "using", "valid", "working",
 }
+
+SANDBOX_HELPER_SOURCE = r"""
+import json
+import os
+import resource
+import socket
+import sys
+
+
+def _int_from_env(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+def _install_resource_limits():
+    timeout = _int_from_env("GRADER_EXEC_TIMEOUT", 15)
+    memory_mb = _int_from_env("GRADER_MEMORY_MB", 512)
+    file_mb = _int_from_env("GRADER_FILE_MB", 10)
+    processes = _int_from_env("GRADER_MAX_PROCESSES", 64)
+
+    resource.setrlimit(resource.RLIMIT_CPU, (timeout + 1, timeout + 2))
+    resource.setrlimit(resource.RLIMIT_AS, (memory_mb * 1024 * 1024, memory_mb * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (file_mb * 1024 * 1024, file_mb * 1024 * 1024))
+    try:
+        resource.setrlimit(resource.RLIMIT_NPROC, (processes, processes))
+    except (AttributeError, ValueError, OSError):
+        pass
+
+
+def _install_audit_guards():
+    blocked_import_roots = {"ctypes", "cffi", "gc"}
+    blocked_events = {
+        "os.fork",
+        "os.forkpty",
+        "os.posix_spawn",
+        "os.spawn",
+        "os.spawnve",
+        "os.system",
+        "pty.spawn",
+        "subprocess.Popen",
+    }
+    network_families = {
+        getattr(socket, "AF_INET", object()),
+        getattr(socket, "AF_INET6", object()),
+        getattr(socket, "AF_PACKET", object()),
+    }
+
+    def audit_hook(event, args):
+        if event == "import" and args:
+            root = str(args[0]).split(".", 1)[0]
+            if root in blocked_import_roots:
+                raise ImportError(f"blocked sandbox import: {root}")
+        if event == "socket.__new__" and args:
+            family = args[0]
+            if family in network_families:
+                raise RuntimeError("network sockets are disabled in grader sandbox")
+        if event in blocked_events:
+            raise RuntimeError(f"blocked sandbox operation: {event}")
+
+    sys.addaudithook(audit_hook)
+
+
+def _block_frame_introspection():
+    def blocked_getframe(*_args, **_kwargs):
+        raise RuntimeError("frame introspection is disabled in grader sandbox")
+
+    sys._getframe = blocked_getframe
+
+
+def _exec_model(model_source):
+    namespace = {"__name__": "__grader__", "__builtins__": __builtins__}
+    exec(compile(model_source, "<model>", "exec"), namespace)
+    return namespace
+
+
+def _exec_reference_code(namespace, reference_code):
+    exec(reference_code, namespace)
+
+
+def main():
+    _install_resource_limits()
+    _install_audit_guards()
+    _block_frame_introspection()
+
+    payload = json.loads(sys.stdin.read())
+    model_source = payload.pop("code")
+    reference_source = payload.pop("reference_tests", "") or ""
+    del payload
+
+    namespace = _exec_model(model_source)
+    if reference_source:
+        reference_code = compile(reference_source, "<reference_tests>", "exec")
+        reference_source = None
+        _exec_reference_code(namespace, reference_code)
+
+
+if __name__ == "__main__":
+    main()
+"""
 
 
 @dataclass
@@ -109,19 +214,103 @@ def score_eval_note_coverage(text: str, eval_notes: str) -> tuple[float, list[st
     return len(matched_requirements) / len(requirements), matched_requirements
 
 
-def build_execution_source(code: str, reference_tests: str | None = None) -> str:
-    """Wrap model code and hidden tests in a controlled execution harness."""
-    normalized_reference_tests = textwrap.dedent(reference_tests or "").strip()
-    return textwrap.dedent(
-        f"""
-        MODEL_CODE = {code!r}
-        REFERENCE_TESTS = {normalized_reference_tests!r}
-        namespace = {{"__name__": "__grader__", "__grader_model_code__": MODEL_CODE}}
-        exec(compile(MODEL_CODE, "<model>", "exec"), namespace)
-        if REFERENCE_TESTS:
-            exec(compile(REFERENCE_TESTS, "<reference_tests>", "exec"), namespace)
-        """
+def build_execution_payload(code: str, reference_tests: str | None = None) -> str:
+    """Serialize model code and reference checks for the sandbox helper."""
+    return json.dumps({
+        "code": code,
+        "reference_tests": textwrap.dedent(reference_tests or "").strip(),
+    })
+
+
+def _sandbox_env(timeout: int) -> dict[str, str]:
+    """Return a sanitized environment for generated-code execution."""
+    return {
+        "HOME": "/tmp",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PATH": "/usr/bin:/bin",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "TMPDIR": "/tmp",
+        "GRADER_EXEC_TIMEOUT": str(timeout),
+        "GRADER_MEMORY_MB": os.getenv("GRADER_MEMORY_MB", "512"),
+        "GRADER_FILE_MB": os.getenv("GRADER_FILE_MB", "10"),
+        "GRADER_MAX_PROCESSES": os.getenv("GRADER_MAX_PROCESSES", "64"),
+    }
+
+
+def _sandbox_python() -> str:
+    """Use the real interpreter path so a venv symlink is not required in bwrap."""
+    return str(Path(sys.executable).resolve())
+
+
+def _bwrap_command(sandbox_dir: str) -> list[str]:
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        raise RuntimeError("bwrap is required for coder execution; set GRADER_ALLOW_UNSANDBOXED=1 to opt out")
+
+    cmd = [
+        bwrap,
+        "--unshare-user",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--die-with-parent",
+        "--new-session",
+    ]
+    for path in ("/usr", "/lib", "/lib64", "/bin"):
+        if Path(path).exists():
+            cmd.extend(["--ro-bind", path, path])
+    cmd.extend([
+        "--dev", "/dev",
+        "--proc", "/proc",
+        "--tmpfs", "/tmp",
+        "--ro-bind", sandbox_dir, "/runner",
+        "--chdir", "/runner",
+        _sandbox_python(),
+        "-I",
+        "-u",
+        "/runner/harness.py",
+    ])
+    return cmd
+
+
+def _unsandboxed_command(sandbox_dir: str) -> list[str]:
+    if os.getenv("GRADER_ALLOW_UNSANDBOXED") != "1":
+        raise RuntimeError("unsafe unsandboxed execution is disabled")
+    return [_sandbox_python(), "-I", "-u", str(Path(sandbox_dir) / "harness.py")]
+
+
+def _execution_command(sandbox_dir: str) -> tuple[str, list[str]]:
+    backend = os.getenv("GRADER_SANDBOX", "bwrap").lower()
+    if backend == "bwrap":
+        return "bwrap", _bwrap_command(sandbox_dir)
+    if backend in {"none", "disabled", "unsafe"}:
+        return "unsandboxed", _unsandboxed_command(sandbox_dir)
+    raise RuntimeError(f"Unknown GRADER_SANDBOX backend: {backend}")
+
+
+def _run_command(cmd: list[str], payload: str, env: dict[str, str], timeout: int) -> subprocess.CompletedProcess:
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        encoding="utf-8",
+        errors="replace",
+        start_new_session=True,
     )
+    try:
+        stdout, stderr = proc.communicate(payload, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = proc.communicate()
+        raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 
 def execute_code_safely(code: str, timeout: int = 15, reference_tests: str | None = None) -> dict:
@@ -132,6 +321,7 @@ def execute_code_safely(code: str, timeout: int = 15, reference_tests: str | Non
         "stdout": "",
         "stderr": "",
         "error_type": None,
+        "sandbox_backend": os.getenv("GRADER_SANDBOX", "bwrap"),
         "tests_found": 0,
         "tests_passed": 0,
         "assertions_found": 0,
@@ -148,26 +338,14 @@ def execute_code_safely(code: str, timeout: int = 15, reference_tests: str | Non
     result["reference_tests_found"] = len(re.findall(r'\bdef\s+test_\w+', normalized_reference_tests))
 
     try:
-        execution_source = build_execution_source(code, normalized_reference_tests)
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False,
-                                          dir=tempfile.gettempdir(),
-                                          encoding='utf-8') as f:
-            f.write(execution_source)
-            f.flush()
-            tmpfile = f.name
+        payload = build_execution_payload(code, normalized_reference_tests)
+        with tempfile.TemporaryDirectory(prefix="llm_grader_") as sandbox_dir:
+            harness_path = Path(sandbox_dir) / "harness.py"
+            harness_path.write_text(SANDBOX_HELPER_SOURCE, encoding="utf-8")
+            backend, cmd = _execution_command(sandbox_dir)
+            result["sandbox_backend"] = backend
+            proc = _run_command(cmd, payload, _sandbox_env(timeout), timeout)
 
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        proc = subprocess.run(
-            ["python", "-u", tmpfile],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=tempfile.gettempdir(),
-            env=env,
-            encoding="utf-8",
-            errors="replace",
-        )
         result["ran"] = True
         result["exit_code"] = proc.returncode
         result["stdout"] = proc.stdout[:2000]
@@ -207,13 +385,11 @@ def execute_code_safely(code: str, timeout: int = 15, reference_tests: str | Non
         result["error_type"] = "timeout"
         result["stderr"] = f"Execution timed out after {timeout}s"
     except Exception as e:
-        result["error_type"] = "execution_failed"
+        if "bwrap is required" in str(e) or "GRADER_SANDBOX" in str(e) or "unsandboxed" in str(e):
+            result["error_type"] = "sandbox_unavailable"
+        else:
+            result["error_type"] = "execution_failed"
         result["stderr"] = str(e)
-    finally:
-        try:
-            os.unlink(tmpfile)
-        except:
-            pass
 
     return result
 

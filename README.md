@@ -39,7 +39,7 @@ It benchmarks two distinct modes that matter for agentic coding workflows:
 Responses are not graded with another LLM (which would add its own biases). Instead, the grader uses deterministic heuristics:
 
 - **Planner mode**: Scores structure (headers, numbered steps, nesting), completeness (topic coverage), actionability (imperative verbs, named technologies, tradeoff analysis), coherence (trigram repetition detection), conciseness (information density), and hallucination resistance
-- **Coder mode**: Actually **executes the generated Python code** in a local subprocess, runs hidden reference checks when the prompt defines them, then scores code quality via AST analysis (docstrings, type hints, function decomposition, naming conventions), spec adherence, and hallucination detection
+- **Coder mode**: Actually **executes the generated Python code** in an isolated local sandbox, runs reference checks when the prompt defines them, then scores code quality via AST analysis (docstrings, type hints, function decomposition, naming conventions), spec adherence, and hallucination detection
 
 ### Why Not Just Use an LLM-as-Judge?
 
@@ -59,7 +59,26 @@ It is **not** a proof of a global optimum. The final ranking depends on your pro
 
 - Python 3.10+
 - A running OpenAI-compatible API endpoint (LM Studio, Ollama, vLLM, llama.cpp server, etc.)
-- `requests` library (`pip install requests`)
+- Python dependencies from `requirements.txt`
+- Linux `bubblewrap` (`bwrap`) for sandboxed coder grading. For production runs, do not disable this sandbox.
+
+Create an environment and install dependencies:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+```
+
+On Debian/Ubuntu, install the sandbox runtime with:
+
+```bash
+sudo apt-get install bubblewrap
+```
+
+Planner-only runs do not execute generated code. Coder runs fail closed if `bwrap`
+is unavailable unless you explicitly set `GRADER_ALLOW_UNSANDBOXED=1`, which is
+not recommended for production.
 
 ### 1. Configure your model
 
@@ -90,7 +109,7 @@ That's it. Everything else is automatic.
 
 ### 2. Run a quickscan (~50 minutes)
 
-Get directional results fast with 30 parameter combinations:
+Get directional results fast with a small parameter set:
 
 ```bash
 python runner.py quickscan --mode planner
@@ -104,9 +123,9 @@ flight:
 python runner.py quickscan --mode planner --reasoning-profiles non_thinking,thinking_512 --parallel 3
 ```
 
-### 3. Run a full coarse sweep (~7–9 hours per mode)
+### 3. Run a full coarse sweep (~12–14 hours per mode)
 
-Test 15 strategically chosen parameter combos across all prompts:
+Test 25 strategically chosen parameter combos across all prompts:
 
 ```bash
 python run_coarse.py planner
@@ -132,7 +151,7 @@ python run_coarse.py planner --analyze
 python report.py planner coder
 ```
 
-All results save incrementally to `results/` as JSONL. Sweeps resume automatically if interrupted — no work is lost.
+All results save incrementally to `results/` as JSONL. Sweeps resume automatically if interrupted, retry previous error rows by default, and analysis excludes incomplete prompt/parameter/sample sets when the expected sweep shape is known.
 
 ### 5. Validate with a holdout set
 
@@ -220,12 +239,12 @@ These findings are specific to this model at this quantization. **That's the ent
 config.py                  # API_BASE, MODEL_ID, parameter grids, scoring weights
 grader.py                  # Automated grading with code execution (v2)
 runner.py                  # Sweep engine with resume support
-run_coarse.py              # Focused 15-combo sweep runner
+run_coarse.py              # Focused 25-combo sweep runner
 run_full_sweep.py          # Combined planner + coder runner
 report.py                  # Analysis and report generator
 prompts/
   planner_prompts.py       # 9 test prompts (architecture, debugging, features, refactoring, edge cases)
-  coder_prompts.py         # 11 test prompts (algorithms, systems, bug fixes, from-spec, refactoring)
+  coder_prompts.py         # 10 test prompts (algorithms, systems, bug fixes, from-spec, refactoring)
 results/                   # JSONL data files (git-ignored, regenerate locally)
 RESULTS.md                 # Detailed findings for the example model
 ```
@@ -260,7 +279,7 @@ assert my_function(5) == 6
 }
 ```
 
-These tests are not shown to the model. The grader runs them after executing the generated code, which makes coder-mode scoring materially more trustworthy for algorithmic and bug-fix tasks.
+These tests are not shown in the prompt. The grader compiles them inside the sandbox after executing the generated code and does not store the reference-test source in model-visible globals, which makes coder-mode scoring materially more trustworthy for algorithmic and bug-fix tasks.
 
 ### Adjusting scoring weights
 
@@ -301,7 +320,7 @@ Works with any OpenAI-compatible API that supports these sampling parameters:
 |----------|--------|
 | **LM Studio** | Tested |
 | **Ollama** | Compatible (use `http://localhost:11434/v1`) |
-| **vLLM** | Compatible | Tested
+| **vLLM** | Compatible |
 | **llama.cpp server** | Compatible |
 | **text-generation-webui** (with openai ext) | Compatible |
 | **OpenRouter / Together / Fireworks** | Compatible (set API_BASE + `LLM_API_KEY` or `OPENAI_API_KEY`) |
