@@ -10,8 +10,8 @@ import itertools
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE TWO VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
-API_BASE  = "http://localhost:1234/v1"                           # OpenAI-compatible endpoint
-MODEL_ID  = "mistralai_devstral-small-2-24b-instruct-2512"      # exact model ID served by the endpoint
+API_BASE  = "https://vllm1.webonly.app/v1"                           # OpenAI-compatible endpoint
+MODEL_ID  = "qwen-gpu"      # exact model ID served by the endpoint
 MAX_CTX   = 61440                                                # context window (tokens)
 # ═══════════════════════════════════════════════════════════════════════════════
 

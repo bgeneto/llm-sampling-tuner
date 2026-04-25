@@ -17,25 +17,23 @@ This approach keeps total API calls manageable:
 Total: ~7,000ish calls — feasible on local inference.
 """
 
+import hashlib
 import json
-import time
 import os
 import sys
-import hashlib
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
 
 import requests
 
-from config import (
-    API_BASE, MODEL_ID, MAX_TOKENS_PLANNER, MAX_TOKENS_CODER,
-    SAMPLES_PER_COMBO, PARAM_GRID_COARSE, PARAM_COMBOS_STRATEGIC,
-    generate_combos, should_skip,
-)
-from prompts.planner_prompts import PLANNER_PROMPTS
+from config import (API_BASE, MAX_TOKENS_CODER, MAX_TOKENS_PLANNER, MODEL_ID,
+                    PARAM_COMBOS_STRATEGIC, PARAM_GRID_COARSE,
+                    SAMPLES_PER_COMBO, generate_combos, should_skip)
+from grader import GradeResult, grade_coder, grade_planner, grade_stability
 from prompts.coder_prompts import CODER_PROMPTS
-from grader import grade_planner, grade_coder, grade_stability, GradeResult
+from prompts.planner_prompts import PLANNER_PROMPTS
 
 RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
@@ -70,6 +68,43 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
     return resp.json()
 
 
+def extract_response_text(raw: dict) -> tuple[str, dict]:
+    """Normalize assistant message content to text and capture response metadata."""
+    choices = raw.get("choices") or []
+    choice = choices[0] if choices else {}
+    message = choice.get("message") or {}
+    content = message.get("content")
+
+    if isinstance(content, str):
+        text = content
+        content_type = "str"
+    elif isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict) and part.get("type") == "text":
+                part_text = part.get("text")
+                if isinstance(part_text, str):
+                    text_parts.append(part_text)
+        text = "".join(text_parts)
+        content_type = "list"
+    elif content is None:
+        text = ""
+        content_type = "none"
+    else:
+        text = str(content)
+        content_type = type(content).__name__
+
+    reasoning = message.get("reasoning")
+    return text, {
+        "finish_reason": choice.get("finish_reason"),
+        "content_type": content_type,
+        "has_reasoning": bool(reasoning),
+        "reasoning_length": len(reasoning) if isinstance(reasoning, str) else 0,
+    }
+
+
 def run_single(prompt_data: dict, params: dict, mode: str) -> dict:
     """Run one prompt with one param set, grade it, return result dict."""
     system_msg = {
@@ -97,7 +132,7 @@ def run_single(prompt_data: dict, params: dict, mode: str) -> dict:
             "mode": mode,
         }
 
-    content = raw["choices"][0]["message"]["content"]
+    content, response_meta = extract_response_text(raw)
     usage = raw.get("usage", {})
 
     # Grade
@@ -106,11 +141,23 @@ def run_single(prompt_data: dict, params: dict, mode: str) -> dict:
     else:
         grade = grade_coder(content, prompt_data)
 
+    if not content.strip():
+        if "empty_response" not in grade.flags:
+            grade.flags.append("empty_response")
+        if response_meta["content_type"] == "none":
+            grade.flags.append("null_message_content")
+        if response_meta["has_reasoning"]:
+            grade.flags.append("reasoning_without_answer")
+        finish_reason = response_meta.get("finish_reason")
+        if finish_reason:
+            grade.flags.append(f"finish_reason_{finish_reason}")
+
     return {
         "prompt_id": prompt_data["id"],
         "mode": mode,
         "params": params,
         "response": content,
+        "response_meta": response_meta,
         "grade": {
             "dimensions": grade.dimensions,
             "weighted_score": grade.weighted_score,
@@ -186,7 +233,11 @@ def run_sweep_phase(
                 else:
                     score = result["grade"]["weighted_score"]
                     elapsed = result["elapsed"]
-                    print(f" score={score:.3f} | {elapsed:.1f}s")
+                    flags = result["grade"].get("flags", [])
+                    if "empty_response" in flags:
+                        print(f" score={score:.3f} | empty_response | {elapsed:.1f}s")
+                    else:
+                        print(f" score={score:.3f} | {elapsed:.1f}s")
 
                 # Save incrementally
                 with open(results_file, "a") as f:

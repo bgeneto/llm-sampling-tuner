@@ -10,14 +10,14 @@ v2 improvements:
   - Deeper code quality metrics (complexity, naming, structure)
 """
 
-import re
 import ast
 import json
+import os
+import re
 import subprocess
 import tempfile
-import os
 import textwrap
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 
 
 @dataclass
@@ -142,8 +142,16 @@ def execute_code_safely(code: str, timeout: int = 15) -> dict:
 def grade_planner(response: str, prompt_meta: dict) -> GradeResult:
     """Grade a planner-mode response using high-resolution heuristics."""
     result = GradeResult()
+    if not isinstance(response, str):
+        result.flags.append("non_text_response")
+        return result
+
     result.raw_length = len(response)
     text = response.strip()
+    if not text:
+        result.flags.append("empty_response")
+        return result
+
     word_count = len(text.split())
 
     # ── Structure (0.20 weight) ──
@@ -317,8 +325,15 @@ def grade_planner(response: str, prompt_meta: dict) -> GradeResult:
 def grade_coder(response: str, prompt_meta: dict) -> GradeResult:
     """Grade a coder-mode response with code execution testing."""
     result = GradeResult()
+    if not isinstance(response, str):
+        result.flags.append("non_text_response")
+        return result
+
     result.raw_length = len(response)
     text = response.strip()
+    if not text:
+        result.flags.append("empty_response")
+        return result
 
     # Extract code blocks
     code_blocks = extract_code_blocks(text)
