@@ -542,11 +542,11 @@ def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
         # Greedy
         {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
         {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
-        # Low temp
-        {"temperature": 0.2, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-        {"temperature": 0.2, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-        {"temperature": 0.2, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-        {"temperature": 0.2, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+        # Bridge temp
+        {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+        {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+        {"temperature": 0.7, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
+        {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
         # Med-low
         {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
         {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},

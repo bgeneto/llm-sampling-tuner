@@ -37,8 +37,8 @@ FOCUSED_COMBOS = [
     {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
     {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
 
-    # Low temp sweet spot (T=0.2)
-    {"temperature": 0.2, "top_p": 0.95, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},
+    # Bridge temp check (T=0.7)
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},
 
     # Med-low (T=0.4) — densely sampled, likely optimal region
     {"temperature": 0.4, "top_p": 0.85, "top_k": 0, "min_p": 0.05, "repeat_penalty": 1.05},

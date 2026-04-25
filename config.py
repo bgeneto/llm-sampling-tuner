@@ -85,7 +85,7 @@ PARAM_COMBOS_STRATEGIC = [
     {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
     {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.15},
 
-    # Low temp (0.2) — conservative but not greedy
+    # Bridge temp (0.7) — explicitly cover the gap between 0.6 and 0.8
     {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
     {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
     {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
