@@ -22,7 +22,7 @@ LLM Sampling Tuner is an automated parameter sweep pipeline that:
 
 1. **Sends diverse test prompts** to your model through any OpenAI-compatible API
 2. **Grades every response** using heuristic analysis and actual code execution
-3. **Sweeps the parameter space** across temperature, top_p, min_p, and repeat_penalty, with top_k fixed at 10
+3. **Sweeps the parameter space** across temperature, top_p, top_k, min_p, and repeat_penalty
 4. **Treats reasoning mode as a first-class axis** so you can compare direct-answer vs bounded-thinking profiles
 5. **Accounts for stochastic variance** by running multiple samples per configuration
 6. **Produces a ranked report** of strong candidate settings, broken down by task type
@@ -197,7 +197,7 @@ These are real results from running this pipeline on Devstral Small 2 24B at IQ4
 |---------|--------|
 | **min_p=0.05 is universally beneficial** | Acts as a noise floor for quantized weights. min_p=0.0 scored worst across both modes. |
 | **repeat_penalty=1.1+ hurts planning** | Over-penalizes technical terms that naturally repeat in structured plans. 1.05 is the sweet spot. |
-| **top_k is fixed at 10** | The current harness keeps top_k constant and tunes the other sampling knobs instead. |
+| **top_k does nothing** | When min_p and top_p are set properly, top_k adds zero measurable benefit. |
 | **Planner tolerates higher temperature** | T=0.6 is optimal for plans. T=0.4 is optimal for code. |
 | **Coder mode needs tighter nucleus** | top_p=0.85 for code vs 0.95 for planning — code needs precise token selection. |
 

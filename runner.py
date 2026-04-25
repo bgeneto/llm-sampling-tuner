@@ -31,13 +31,12 @@ import requests
 
 from config import (API_BASE, DEFAULT_PARALLEL_REQUESTS,
                     DEFAULT_REASONING_PROFILES,
-                    DEFAULT_USE_REASONING_AS_RESPONSE, FIXED_TOP_K,
-                    MAX_TOKENS_CODER, MAX_TOKENS_PLANNER, MODEL_ID,
-                    PARAM_COMBOS_STRATEGIC, PARAM_GRID_COARSE,
-                    QWEN3_RECOMMENDED_COMBOS, SAMPLES_PER_COMBO,
-                    expand_param_combos, generate_combos,
-                    normalize_reasoning_params, normalize_sampling_params,
-                    resolve_reasoning_profiles, should_skip)
+                    DEFAULT_USE_REASONING_AS_RESPONSE, MAX_TOKENS_CODER,
+                    MAX_TOKENS_PLANNER, MODEL_ID, PARAM_COMBOS_STRATEGIC,
+                    PARAM_GRID_COARSE, QWEN3_RECOMMENDED_COMBOS,
+                    SAMPLES_PER_COMBO, expand_param_combos, generate_combos,
+                    normalize_reasoning_params, resolve_reasoning_profiles,
+                    should_skip)
 from grader import GradeResult, grade_coder, grade_planner, grade_stability
 from prompts.coder_prompts import CODER_PROMPTS
 from prompts.planner_prompts import PLANNER_PROMPTS
@@ -80,7 +79,6 @@ def parse_reasoning_profiles_arg(raw_value: str | None) -> list[str]:
 def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
                    timeout: int = 180) -> dict:
     """Call LM Studio chat completions API. Returns raw response dict."""
-    params = normalize_sampling_params(normalize_reasoning_params(params))
     payload = {
         "model": MODEL_ID,
         "messages": messages,
@@ -91,6 +89,10 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
         if key in INTERNAL_PARAM_KEYS or value is None:
             continue
         payload[key] = value
+
+    # Remove params that are 0/disabled to let LM Studio use defaults
+    if payload.get("top_k") == 0:
+        del payload["top_k"]
 
     resp = requests.post(
         f"{API_BASE}/chat/completions",
@@ -148,7 +150,7 @@ def extract_response_text(raw: dict, use_reasoning_as_response: bool = False) ->
 
 def run_single(prompt_data: dict, params: dict, mode: str) -> dict:
     """Run one prompt with one param set, grade it, return result dict."""
-    params = normalize_sampling_params(normalize_reasoning_params(params))
+    params = normalize_reasoning_params(params)
     system_msg = {
         "planner": "You are an expert technical planner and architect. Produce structured, actionable plans. Do not write code unless explicitly asked.",
         "coder": "You are an expert software engineer. Write clean, correct, well-tested code. Follow the requirements exactly.",
@@ -236,17 +238,6 @@ def run_sweep_phase(
     Saves results incrementally to disk for crash recovery.
     """
     parallel_requests = max(1, parallel_requests)
-    normalized_param_combos = []
-    seen_param_combos = set()
-    for params in param_combos:
-        normalized = normalize_sampling_params(normalize_reasoning_params(params))
-        key = json.dumps(normalized, sort_keys=True)
-        if key in seen_param_combos:
-            continue
-        seen_param_combos.add(key)
-        normalized_param_combos.append(normalized)
-    param_combos = normalized_param_combos
-
     results_file = RESULTS_DIR / f"{phase_name}_{mode}.jsonl"
 
     # Load existing results for resume
@@ -438,12 +429,12 @@ def generate_fine_grid(top_combo: dict, step_sizes: dict | None = None) -> list[
         step_sizes = {
             "temperature": [-.05, 0, .05, .1],
             "top_p":       [-.05, 0, .05],
-            "top_k":       [0],
+            "top_k":       [-5, 0, 5, 10],
             "min_p":       [-.02, 0, .02],
             "repeat_penalty": [-.02, 0, .02],
         }
 
-    base = normalize_sampling_params(top_combo["params"])
+    base = top_combo["params"]
     combos = []
 
     import itertools
@@ -458,7 +449,7 @@ def generate_fine_grid(top_combo: dict, step_sizes: dict | None = None) -> list[
             elif k == "top_p":
                 val = max(0.1, min(1.0, round(val, 3)))
             elif k == "top_k":
-                val = FIXED_TOP_K
+                val = max(0, int(val))
             elif k == "min_p":
                 val = max(0.0, min(0.5, round(val, 3)))
             elif k == "repeat_penalty":
@@ -554,45 +545,44 @@ def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
         prompts = [p for p in CODER_PROMPTS if p["id"] in quickscan_prompt_ids]
         n_samples = 2
 
-    # Candidate combos spanning the full space; duplicates collapse after
-    # fixed-top_k normalization and param deduping.
+    # 30 maximally diverse combos spanning the full space
     combos = [
         # Greedy
-        {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.0},
-        {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.1},
+        {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
+        {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
         # Bridge temp
         dict(QWEN3_RECOMMENDED_COMBOS["instruct"]),
-        {"temperature": 0.7, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
+        {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
         {"temperature": 0.7, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-        {"temperature": 0.7, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
+        {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
         # Med-low
-        {"temperature": 0.4, "top_p": 0.7,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-        {"temperature": 0.4, "top_p": 0.80, "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-        {"temperature": 0.4, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-        {"temperature": 0.4, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-        {"temperature": 0.4, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
+        {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+        {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+        {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+        {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+        {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
         {"temperature": 0.4, "top_p": 0.80, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-        {"temperature": 0.4, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-        {"temperature": 0.4, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-        {"temperature": 0.4, "top_p": 1.0,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
+        {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+        {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+        {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
         # Medium
         dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
-        {"temperature": 0.6, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-        {"temperature": 0.6, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
+        {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+        {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
         {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-        {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-        {"temperature": 0.6, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
+        {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+        {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
         # Med-high
-        {"temperature": 0.8, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-        {"temperature": 0.8, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
-        {"temperature": 0.8, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
+        {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+        {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
+        {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
         {"temperature": 0.8, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
         # High
         dict(QWEN3_RECOMMENDED_COMBOS["default"]),
-        {"temperature": 1.0, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.15},
-        {"temperature": 1.0, "top_p": 0.80, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
+        {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
+        {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
         {"temperature": 1.0, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.15},
-        {"temperature": 1.0, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.15},
+        {"temperature": 1.0, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
     ]
     expanded = expand_param_combos(combos, reasoning_profiles)
     total_calls = len(expanded) * len(prompts) * n_samples

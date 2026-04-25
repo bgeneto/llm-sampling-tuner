@@ -6,7 +6,6 @@ OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, text-generation-webui, etc.
 """
 
 import itertools
-import json
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE VALUES to target a different model / API endpoint
@@ -60,28 +59,27 @@ DEFAULT_REASONING_PROFILES = ["non_thinking"]
 
 # ── Sweep execution controls ──
 DEFAULT_PARALLEL_REQUESTS = 2
-FIXED_TOP_K = 10
 
 # ── Qwen3 reference presets ──
 QWEN3_RECOMMENDED_COMBOS = {
     "default": {
         "temperature": 1.0,
         "top_p": 0.95,
-        "top_k": FIXED_TOP_K,
+        "top_k": 20,
         "min_p": 0.0,
         "repeat_penalty": 1.0,
     },
     "thinking_coding": {
         "temperature": 0.6,
         "top_p": 0.95,
-        "top_k": FIXED_TOP_K,
+        "top_k": 20,
         "min_p": 0.0,
         "repeat_penalty": 1.0,
     },
     "instruct": {
         "temperature": 0.7,
         "top_p": 0.80,
-        "top_k": FIXED_TOP_K,
+        "top_k": 20,
         "min_p": 0.0,
         "repeat_penalty": 1.0,
     },
@@ -97,126 +95,126 @@ QWEN3_RECOMMENDED_COMBOS = {
 PARAM_GRID_COARSE = {
     "temperature":    [0.0, 0.4, 0.6, 0.7, 0.8, 1.0],
     "top_p":          [0.7, 0.8, 0.85, 0.95, 1.0],
-    "top_k":          [FIXED_TOP_K],
+    "top_k":          [0, 20, 30, 60],                 # 0 = disabled
     "min_p":          [0.0, 0.05, 0.1],
     "repeat_penalty": [1.0, 1.05, 1.1, 1.15],
 }
 
 # ── Strategic subset for coarse phase ──
 # Instead of full Cartesian (3000+ combos), we use curated combos
-# that cover the parameter space efficiently and are deduped after normalization.
+# that cover the parameter space efficiently: ~100 combos
 PARAM_COMBOS_STRATEGIC = [
     # Greedy baseline (temp=0 makes top_p/k/min_p irrelevant)
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.0},
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.05},
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.1},
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 10, "min_p": 0.0, "repeat_penalty": 1.15},
+    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
+    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.05},
+    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
+    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.15},
 
     # Bridge temp (0.7) — explicitly cover the gap between 0.6 and 0.8
-    {"temperature": 0.7, "top_p": 0.80, "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.7, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
     dict(QWEN3_RECOMMENDED_COMBOS["instruct"]),
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 10, "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.7, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 60, "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 0.95, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
 
     # Medium-low temp (0.4) — the "sweet spot" region to explore densely
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 10, "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 20, "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.85, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 0.95, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
 
     # Medium temp (0.6) — balanced creativity/coherence
-    {"temperature": 0.6, "top_p": 0.7,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.7,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.7,  "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 10,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
     dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.6, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.85, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 0.95, "top_k": 60, "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
 
     # Medium-high temp (0.8) — more creative, higher derail risk
-    {"temperature": 0.8, "top_p": 0.7,  "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.7,  "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+    {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.85, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.80, "top_k": 60, "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 0.8, "top_p": 0.95, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 0.8, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
 
     # High temp (1.0) — maximum creativity, strong guardrails needed
-    {"temperature": 1.0, "top_p": 0.7,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.7,  "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.80, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 1.0, "top_p": 0.80, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.15},
+    {"temperature": 1.0, "top_p": 0.7,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.7,  "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
+    {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
     dict(QWEN3_RECOMMENDED_COMBOS["default"]),
-    {"temperature": 1.0, "top_p": 0.80, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.95, "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.15},
-    {"temperature": 1.0, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 1.0,  "top_k": 10,  "min_p": 0.1,  "repeat_penalty": 1.15},
+    {"temperature": 1.0, "top_p": 0.80, "top_k": 60, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
+    {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
+    {"temperature": 1.0, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
 ]
 
 # ── Focused grids per mode (used after coarse sweep narrows regions) ──
@@ -226,18 +224,10 @@ PARAM_GRID_CODER_FINE = {}
 
 # ── Sensible combo pruning: not all combos are worth testing ──
 # Skip combos where temp=0 and top_p/top_k/min_p vary (greedy is deterministic)
-def normalize_sampling_params(params):
-    """Return a shallow copy of params with the sweep's fixed top_k applied."""
-    normalized = dict(params)
-    normalized["top_k"] = FIXED_TOP_K
-    return normalized
-
-
 def should_skip(params):
-    params = normalize_sampling_params(params)
     if params["temperature"] == 0.0:
         # For greedy, only one set of top_p/top_k/min_p matters
-        if params["top_p"] != 1.0 or params["top_k"] != FIXED_TOP_K or params["min_p"] != 0.0:
+        if params["top_p"] != 1.0 or params["top_k"] != 0 or params["min_p"] != 0.0:
             return True
     return False
 
@@ -246,7 +236,7 @@ def generate_combos(grid):
     keys = list(grid.keys())
     combos = []
     for vals in itertools.product(*[grid[k] for k in keys]):
-        combo = normalize_sampling_params(dict(zip(keys, vals)))
+        combo = dict(zip(keys, vals))
         if not should_skip(combo):
             combos.append(combo)
     return combos
@@ -289,9 +279,7 @@ def resolve_reasoning_profiles(reasoning_profiles=None):
 def expand_param_combos(param_combos, reasoning_profiles=None):
     """Cross product sampling combos with the selected reasoning profiles."""
     expanded = []
-    seen = set()
     for combo in param_combos:
-        combo = normalize_sampling_params(combo)
         for profile_name in resolve_reasoning_profiles(reasoning_profiles):
             profile = REASONING_PROFILES[profile_name]
             expanded_combo = dict(combo)
@@ -302,10 +290,6 @@ def expand_param_combos(param_combos, reasoning_profiles=None):
                 "use_reasoning_as_response",
                 DEFAULT_USE_REASONING_AS_RESPONSE,
             )
-            key = json.dumps(expanded_combo, sort_keys=True)
-            if key in seen:
-                continue
-            seen.add(key)
             expanded.append(expanded_combo)
     return expanded
 
