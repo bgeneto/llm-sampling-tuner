@@ -111,6 +111,28 @@ def resolve_analysis_path(mode: str, analysis_phase: str | None, analysis_file: 
     return None
 
 
+def enrich_combos_with_profiles(combos: list[dict], reasoning_profiles: list[str],
+                                 thinking_token_budget: int | None) -> list[dict]:
+    """Enrich raw param combos with reasoning profile metadata (chat_template_kwargs, thinking_token_budget, etc.)."""
+    enriched = []
+    for combo in combos:
+        for profile_name in resolve_reasoning_profiles(reasoning_profiles, thinking_token_budget):
+            profile_name, profile = resolve_reasoning_profile_config(
+                profile_name,
+                thinking_token_budget,
+            )
+            enriched_combo = dict(combo)
+            enriched_combo["reasoning_profile"] = profile_name
+            enriched_combo["chat_template_kwargs"] = profile.get("chat_template_kwargs")
+            enriched_combo["thinking_token_budget"] = profile.get("thinking_token_budget")
+            enriched_combo["use_reasoning_as_response"] = profile.get(
+                "use_reasoning_as_response",
+                DEFAULT_USE_REASONING_AS_RESPONSE,
+            )
+            enriched.append(enriched_combo)
+    return enriched
+
+
 def load_param_combos_from_file(param_file: str | None) -> tuple[list[dict] | None, Path | None]:
     """Load raw param combo dicts from a user-supplied JSON file."""
     if param_file is None:
@@ -306,7 +328,14 @@ def run_single_mode(mode, reasoning_profiles, parallel_requests, thinking_token_
     loaded_combos: list[dict] | None = None
 
     if param_file_combos is not None:
-        expanded_combos = param_file_combos
+        if reasoning_profiles:
+            expanded_combos = enrich_combos_with_profiles(
+                param_file_combos,
+                reasoning_profiles,
+                thinking_token_budget,
+            )
+        else:
+            expanded_combos = param_file_combos
         combo_source = f"param file {param_file_path}"
     else:
         loaded_combos, analysis_path = load_param_combos_from_analysis(
