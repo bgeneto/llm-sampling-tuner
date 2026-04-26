@@ -25,8 +25,8 @@ from pathlib import Path
 sys.path.insert(0, '.')
 
 from config import (DEFAULT_PARALLEL_REQUESTS, DEFAULT_REASONING_PROFILES,
-                    QWEN3_RECOMMENDED_COMBOS, expand_param_combos,
-                    resolve_reasoning_profile_config,
+                    DEFAULT_USE_REASONING_AS_RESPONSE, QWEN3_RECOMMENDED_COMBOS,
+                    expand_param_combos, resolve_reasoning_profile_config,
                     resolve_reasoning_profiles)
 from prompts.coder_prompts import CODER_PROMPTS
 from prompts.planner_prompts import PLANNER_PROMPTS
