@@ -33,6 +33,8 @@ from prompts.planner_prompts import PLANNER_PROMPTS
 from runner import (analyze_coarse_results, format_param_combo, param_hash,
                     parse_reasoning_profiles_arg, run_sweep_phase)
 
+NSAMPLES = 2
+
 # 25 param combos spanning the full interesting space
 # Selected to maximize information gain based on quickscan data
 FOCUSED_COMBOS = [
@@ -107,6 +109,41 @@ def resolve_analysis_path(mode: str, analysis_phase: str | None, analysis_file: 
     if analysis_phase:
         return Path("results") / f"analysis_{analysis_phase}_{mode}.json"
     return None
+
+
+def load_param_combos_from_file(param_file: str | None) -> tuple[list[dict] | None, Path | None]:
+    """Load raw param combo dicts from a user-supplied JSON file."""
+    if param_file is None:
+        return None, None
+
+    file_path = Path(param_file)
+    if not file_path.exists():
+        raise ValueError(f"Param file not found: {file_path}")
+
+    try:
+        raw = json.loads(file_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in param file {file_path}: {exc}") from exc
+
+    if not isinstance(raw, list):
+        raise ValueError(f"Param file must contain a JSON array: {file_path}")
+
+    combos = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise ValueError(f"Each entry in {file_path} must be a JSON object")
+        # Require at least one of the core params
+        core_keys = {"temperature", "top_p", "top_k", "min_p", "repeat_penalty"}
+        if not core_keys.intersection(entry.keys()):
+            raise ValueError(
+                f"Each param combo in {file_path} must include at least one of: "
+                f"{', '.join(sorted(core_keys))}"
+            )
+        combos.append(entry)
+
+    if not combos:
+        raise ValueError(f"Param file is empty: {file_path}")
+    return combos, file_path
 
 
 def load_param_combos_from_analysis(
@@ -265,6 +302,9 @@ def main():
                         help="Comma-separated param_hash values to select exact finalist combos from analysis")
     parser.add_argument("--phase-name",
                         help="Custom phase/result prefix. Defaults to coarse_v2 or an auto-generated holdout name")
+    parser.add_argument("--param-file",
+                        help="Path to a JSON file containing an array of param combo dicts "
+                             "(e.g. [{\"temperature\": 0.6, \"top_p\": 0.95, ...}])")
     args = parser.parse_args()
 
     try:
@@ -294,6 +334,27 @@ def main():
 
     try:
         prompts = filter_prompts(base_prompts, include_prompt_ids, exclude_prompt_ids)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    # Resolve combos: --param-file > analysis file > built-in FOCUSED_COMBOS
+    param_file_combos: list[dict] | None = None
+    param_file_path: Path | None = None
+    if args.param_file:
+        try:
+            param_file_combos, param_file_path = load_param_combos_from_file(args.param_file)
+        except ValueError as exc:
+            parser.error(str(exc))
+
+    analysis_path: Path | None = None
+    loaded_combos: list[dict] | None = None
+
+    if param_file_combos is not None:
+        # User-supplied combos take priority
+        expanded_combos = param_file_combos
+        combo_source = f"param file {param_file_path}"
+    else:
+        # Fall back to analysis file or built-in combos
         loaded_combos, analysis_path = load_param_combos_from_analysis(
             args.mode,
             args.analysis_phase,
@@ -301,25 +362,16 @@ def main():
             args.top_n,
             selected_hashes,
         )
-    except ValueError as exc:
-        parser.error(str(exc))
-
-    n_samples = 2
-    if loaded_combos is not None:
-        if args.thinking_token_budget is not None:
-            parser.error(
-                "--thinking-token-budget only applies when expanding built-in combos; "
-                "analysis finalists already include their budget"
+        if loaded_combos is not None:
+            expanded_combos = loaded_combos
+            combo_source = f"analysis file {analysis_path}"
+        else:
+            expanded_combos = expand_param_combos(
+                FOCUSED_COMBOS,
+                reasoning_profiles,
+                thinking_token_budget=args.thinking_token_budget,
             )
-        expanded_combos = loaded_combos
-        combo_source = f"analysis file {analysis_path}"
-    else:
-        expanded_combos = expand_param_combos(
-            FOCUSED_COMBOS,
-            reasoning_profiles,
-            thinking_token_budget=args.thinking_token_budget,
-        )
-        combo_source = "built-in focused combo set"
+            combo_source = "built-in focused combo set"
 
     phase_name = build_phase_name(
         args.phase_name,
@@ -332,10 +384,12 @@ def main():
         args.thinking_token_budget,
     )
 
-    total_calls = len(expanded_combos) * len(prompts) * n_samples
+    total_calls = len(expanded_combos) * len(prompts) * NSAMPLES
     est_hours = total_calls * 100 / 3600
     print(f"\nFocused Coarse Sweep: {args.mode.upper()}")
-    if analysis_path is None:
+    if param_file_path is not None:
+        print(f"  Combo source: {param_file_path}")
+    elif analysis_path is None:
         print(f"  Reasoning profiles: {', '.join(reasoning_profiles)}")
         if args.thinking_token_budget is not None:
             print(f"  Thinking token budget: {args.thinking_token_budget}")
@@ -348,11 +402,10 @@ def main():
         else:
             print(f"  Finalists from analysis: top {min(args.top_n, len(expanded_combos))}")
     print(f"  Phase name: {phase_name}")
-    print(f"  Combo source: {combo_source}")
     print(f"  Combos: {len(expanded_combos)}")
     print(f"  Prompts: {len(prompts)}")
     print(f"  Prompt ids: {', '.join(prompt['id'] for prompt in prompts)}")
-    print(f"  Samples/combo: {n_samples}")
+    print(f"  Samples/combo: {NSAMPLES}")
     print(f"  Parallel requests: {args.parallel}")
     print(f"  Total calls: {total_calls}")
     print(f"  Estimated time: ~{est_hours:.1f} hours")
@@ -367,7 +420,7 @@ def main():
             args.mode,
             prompts,
             expanded_combos,
-            n_samples,
+            NSAMPLES,
             phase_name,
             parallel_requests=args.parallel,
         )
@@ -378,7 +431,7 @@ def main():
         phase_name,
         expected_prompts=prompts,
         expected_param_combos=expanded_combos,
-        n_samples=n_samples,
+        n_samples=NSAMPLES,
         require_complete=args.complete_only,
     )
 
