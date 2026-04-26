@@ -273,9 +273,127 @@ def print_prompt_catalog(mode: str, prompts: list[dict]):
         )
 
 
+def run_single_mode(mode, reasoning_profiles, parallel_requests, thinking_token_budget,
+                    analyze, complete_only, prompt_ids, exclude_prompt_ids,
+                    analysis_phase, analysis_file, top_n, param_hashes, phase_name, param_file):
+    """Run sweep + analysis for a single mode."""
+    base_prompts = PLANNER_PROMPTS if mode == "planner" else CODER_PROMPTS
+    include_prompt_ids = parse_csv_arg(prompt_ids)
+    exclude_prompt_ids = parse_csv_arg(exclude_prompt_ids)
+    selected_hashes = parse_csv_arg(param_hashes)
+
+    if selected_hashes and not (analysis_phase or analysis_file):
+        print(f"ERROR: --param-hashes requires --analysis-phase or --analysis-file (for mode {mode})")
+        sys.exit(1)
+
+    try:
+        prompts = filter_prompts(base_prompts, include_prompt_ids, exclude_prompt_ids)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
+
+    # Resolve combos: --param-file > analysis file > built-in FOCUSED_COMBOS
+    param_file_combos: list[dict] | None = None
+    param_file_path: Path | None = None
+    if param_file:
+        try:
+            param_file_combos, param_file_path = load_param_combos_from_file(param_file)
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(1)
+
+    analysis_path: Path | None = None
+    loaded_combos: list[dict] | None = None
+
+    if param_file_combos is not None:
+        expanded_combos = param_file_combos
+        combo_source = f"param file {param_file_path}"
+    else:
+        loaded_combos, analysis_path = load_param_combos_from_analysis(
+            mode,
+            analysis_phase,
+            analysis_file,
+            top_n,
+            selected_hashes,
+        )
+        if loaded_combos is not None:
+            expanded_combos = loaded_combos
+            combo_source = f"analysis file {analysis_path}"
+        else:
+            expanded_combos = expand_param_combos(
+                FOCUSED_COMBOS,
+                reasoning_profiles,
+                thinking_token_budget=thinking_token_budget,
+            )
+            combo_source = "built-in focused combo set"
+
+    phase = build_phase_name(
+        phase_name,
+        mode,
+        prompts,
+        analysis_path,
+        top_n,
+        selected_hashes,
+        reasoning_profiles,
+        thinking_token_budget,
+    )
+
+    total_calls = len(expanded_combos) * len(prompts) * NSAMPLES
+    est_hours = total_calls * 100 / 3600
+    print(f"\n{'#'*60}")
+    print(f"  SWEEP: {mode.upper()} ({total_calls} calls, ~{est_hours:.1f}h)")
+    print(f"  Reasoning profiles: {', '.join(reasoning_profiles)}")
+    if thinking_token_budget is not None:
+        print(f"  Thinking token budget: {thinking_token_budget}")
+    if param_file_path is not None:
+        print(f"  Combo source: {param_file_path}")
+    elif analysis_path is None:
+        pass
+    else:
+        selected_profiles = sorted({combo.get('reasoning_profile', 'unprofiled') for combo in expanded_combos})
+        print(f"  Finalists loaded from: {analysis_path}")
+        print(f"  Finalist reasoning profiles: {', '.join(selected_profiles)}")
+        if selected_hashes:
+            print(f"  Selected param_hashes: {', '.join(selected_hashes)}")
+        else:
+            print(f"  Finalists from analysis: top {min(top_n, len(expanded_combos))}")
+    print(f"  Phase name: {phase}")
+    print(f"  Combos: {len(expanded_combos)}")
+    print(f"  Prompts: {len(prompts)}")
+    print(f"  Prompt ids: {', '.join(prompt['id'] for prompt in prompts)}")
+    print(f"  Samples/combo: {NSAMPLES}")
+    print(f"  Parallel requests: {parallel_requests}")
+    print(f"{'#'*60}")
+
+    if expanded_combos:
+        print("  Selected combos:")
+        for combo in expanded_combos:
+            print(f"    {param_hash(combo)}  {format_param_combo(combo)}")
+
+    if not analyze:
+        run_sweep_phase(
+            mode,
+            prompts,
+            expanded_combos,
+            NSAMPLES,
+            phase,
+            parallel_requests=parallel_requests,
+        )
+
+    print(f"\n>>> Analysis for {mode}:")
+    analyze_coarse_results(
+        mode,
+        phase,
+        expected_prompts=prompts,
+        expected_param_combos=expanded_combos,
+        n_samples=NSAMPLES,
+        require_complete=complete_only,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Focused coarse sweep runner")
-    parser.add_argument("mode", choices=["planner", "coder"])
+    parser.add_argument("mode", choices=["planner", "coder", "both"], default="both")
     parser.add_argument("--analyze", action="store_true", help="Analyze only; do not run new requests")
     parser.add_argument("--complete-only", action="store_true",
                         help="When analyzing, rank only parameter combos with every expected run present")
@@ -320,120 +438,31 @@ def main():
     except ValueError as exc:
         parser.error(str(exc))
 
-    base_prompts = PLANNER_PROMPTS if args.mode == "planner" else CODER_PROMPTS
+    modes = ["planner", "coder"] if args.mode == "both" else [args.mode]
+
     if args.list_prompts:
-        print_prompt_catalog(args.mode, base_prompts)
+        for m in modes:
+            base_prompts = PLANNER_PROMPTS if m == "planner" else CODER_PROMPTS
+            print_prompt_catalog(m, base_prompts)
         return
 
-    include_prompt_ids = parse_csv_arg(args.prompt_ids)
-    exclude_prompt_ids = parse_csv_arg(args.exclude_prompt_ids)
-    selected_hashes = parse_csv_arg(args.param_hashes)
-
-    if selected_hashes and not (args.analysis_phase or args.analysis_file):
-        parser.error("--param-hashes requires --analysis-phase or --analysis-file")
-
-    try:
-        prompts = filter_prompts(base_prompts, include_prompt_ids, exclude_prompt_ids)
-    except ValueError as exc:
-        parser.error(str(exc))
-
-    # Resolve combos: --param-file > analysis file > built-in FOCUSED_COMBOS
-    param_file_combos: list[dict] | None = None
-    param_file_path: Path | None = None
-    if args.param_file:
-        try:
-            param_file_combos, param_file_path = load_param_combos_from_file(args.param_file)
-        except ValueError as exc:
-            parser.error(str(exc))
-
-    analysis_path: Path | None = None
-    loaded_combos: list[dict] | None = None
-
-    if param_file_combos is not None:
-        # User-supplied combos take priority
-        expanded_combos = param_file_combos
-        combo_source = f"param file {param_file_path}"
-    else:
-        # Fall back to analysis file or built-in combos
-        loaded_combos, analysis_path = load_param_combos_from_analysis(
-            args.mode,
+    for m in modes:
+        run_single_mode(
+            m,
+            reasoning_profiles,
+            args.parallel,
+            args.thinking_token_budget,
+            args.analyze,
+            args.complete_only,
+            args.prompt_ids,
+            args.exclude_prompt_ids,
             args.analysis_phase,
             args.analysis_file,
             args.top_n,
-            selected_hashes,
+            args.param_hashes,
+            args.phase_name,
+            args.param_file,
         )
-        if loaded_combos is not None:
-            expanded_combos = loaded_combos
-            combo_source = f"analysis file {analysis_path}"
-        else:
-            expanded_combos = expand_param_combos(
-                FOCUSED_COMBOS,
-                reasoning_profiles,
-                thinking_token_budget=args.thinking_token_budget,
-            )
-            combo_source = "built-in focused combo set"
-
-    phase_name = build_phase_name(
-        args.phase_name,
-        args.mode,
-        prompts,
-        analysis_path,
-        args.top_n,
-        selected_hashes,
-        reasoning_profiles,
-        args.thinking_token_budget,
-    )
-
-    total_calls = len(expanded_combos) * len(prompts) * NSAMPLES
-    est_hours = total_calls * 100 / 3600
-    print(f"\nFocused Coarse Sweep: {args.mode.upper()}")
-    if param_file_path is not None:
-        print(f"  Combo source: {param_file_path}")
-    elif analysis_path is None:
-        print(f"  Reasoning profiles: {', '.join(reasoning_profiles)}")
-        if args.thinking_token_budget is not None:
-            print(f"  Thinking token budget: {args.thinking_token_budget}")
-    else:
-        selected_profiles = sorted({combo.get('reasoning_profile', 'unprofiled') for combo in expanded_combos})
-        print(f"  Finalists loaded from: {analysis_path}")
-        print(f"  Finalist reasoning profiles: {', '.join(selected_profiles)}")
-        if selected_hashes:
-            print(f"  Selected param_hashes: {', '.join(selected_hashes)}")
-        else:
-            print(f"  Finalists from analysis: top {min(args.top_n, len(expanded_combos))}")
-    print(f"  Phase name: {phase_name}")
-    print(f"  Combos: {len(expanded_combos)}")
-    print(f"  Prompts: {len(prompts)}")
-    print(f"  Prompt ids: {', '.join(prompt['id'] for prompt in prompts)}")
-    print(f"  Samples/combo: {NSAMPLES}")
-    print(f"  Parallel requests: {args.parallel}")
-    print(f"  Total calls: {total_calls}")
-    print(f"  Estimated time: ~{est_hours:.1f} hours")
-
-    if expanded_combos:
-        print("  Selected combos:")
-        for combo in expanded_combos:
-            print(f"    {param_hash(combo)}  {format_param_combo(combo)}")
-
-    if not args.analyze:
-        run_sweep_phase(
-            args.mode,
-            prompts,
-            expanded_combos,
-            NSAMPLES,
-            phase_name,
-            parallel_requests=args.parallel,
-        )
-
-    print("\n>>> Analysis:")
-    analyze_coarse_results(
-        args.mode,
-        phase_name,
-        expected_prompts=prompts,
-        expected_param_combos=expanded_combos,
-        n_samples=NSAMPLES,
-        require_complete=args.complete_only,
-    )
 
 
 if __name__ == "__main__":
