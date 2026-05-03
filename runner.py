@@ -36,6 +36,7 @@ from config import (API_BASE, API_KEY, DEFAULT_PARALLEL_REQUESTS,
                     MAX_TOKENS_PLANNER, MODEL_ID, PARAM_COMBOS_STRATEGIC,
                     QWEN3_RECOMMENDED_COMBOS, SAMPLES_PER_COMBO,
                     expand_param_combos, normalize_reasoning_params,
+                    normalize_request_params,
                     resolve_reasoning_profiles, should_skip)
 from grader import GradeResult, grade_coder, grade_planner, grade_stability
 from prompts.coder_prompts import CODER_PROMPTS
@@ -78,7 +79,7 @@ def expected_run_keys(
 
 def format_param_combo(params: dict) -> str:
     """Compact human-readable representation of a full experiment combo."""
-    params = normalize_reasoning_params(params)
+    params = normalize_request_params(params)
     parts = [
         f"profile={params.get('reasoning_profile', 'unprofiled')}",
         f"t={params['temperature']}",
@@ -86,6 +87,7 @@ def format_param_combo(params: dict) -> str:
         f"top_k={params['top_k']}",
         f"min_p={params['min_p']}",
         f"rep={params['repeat_penalty']}",
+        f"presence={params['presence_penalty']}",
     ]
     budget = params.get("thinking_token_budget")
     if budget is not None:
@@ -123,6 +125,7 @@ def resolve_request_max_tokens(answer_max_tokens: int, params: dict) -> int:
 def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
                    timeout: int = 180) -> dict:
     """Call LM Studio chat completions API. Returns raw response dict."""
+    params = normalize_request_params(params)
     payload = {
         "model": MODEL_ID,
         "messages": messages,
@@ -233,7 +236,7 @@ def extract_response_text(raw: dict, use_reasoning_as_response: bool = False) ->
 
 def run_single(prompt_data: dict, params: dict, mode: str) -> dict:
     """Run one prompt with one param set, grade it, return result dict."""
-    params = normalize_reasoning_params(params)
+    params = normalize_request_params(params)
     system_msg = {
         "planner": "You are an expert technical planner and architect. Produce structured, actionable plans. Do not write code unless explicitly asked.",
         "coder": "You are an expert software engineer. Write clean, correct, well-tested code. Follow the requirements exactly.",
@@ -321,6 +324,7 @@ def run_sweep_phase(
 
     Saves results incrementally to disk for crash recovery.
     """
+    param_combos = [normalize_request_params(params) for params in param_combos]
     parallel_requests = max(1, parallel_requests)
     results_file = RESULTS_DIR / f"{phase_name}_{mode}.jsonl"
     target_keys = expected_run_keys(prompts, param_combos, n_samples)
@@ -626,13 +630,16 @@ def generate_fine_grid(top_combo: dict, step_sizes: dict | None = None) -> list[
             "repeat_penalty": [-.02, 0, .02],
         }
 
-    base = top_combo["params"]
+    base = normalize_request_params(top_combo["params"])
     combos = []
 
     import itertools
     keys = list(step_sizes.keys())
+    stepped_keys = set(keys)
+    if "repeat_penalty" in stepped_keys:
+        stepped_keys.add("repetition_penalty")
     for deltas in itertools.product(*[step_sizes[k] for k in keys]):
-        new_params = {k: v for k, v in base.items() if k not in step_sizes}
+        new_params = {k: v for k, v in base.items() if k not in stepped_keys}
         for k, d in zip(keys, deltas):
             val = base[k] + d
             # Clamp
@@ -647,8 +654,10 @@ def generate_fine_grid(top_combo: dict, step_sizes: dict | None = None) -> list[
             elif k == "repeat_penalty":
                 val = max(1.0, min(1.5, round(val, 3)))
             new_params[k] = val
+            if k == "repeat_penalty":
+                new_params["repetition_penalty"] = val
         if not should_skip(new_params):
-            combos.append(new_params)
+            combos.append(normalize_request_params(new_params))
 
     # Deduplicate
     seen = set()
@@ -698,7 +707,7 @@ def run_focused(mode: str, top_combos: list[dict],
                 parallel_requests: int = DEFAULT_PARALLEL_REQUESTS):
     """Phase 2: Test top combos on ALL prompts with full sampling."""
     prompts = PLANNER_PROMPTS if mode == "planner" else CODER_PROMPTS
-    param_list = [tc["params"] for tc in top_combos]
+    param_list = [normalize_request_params(tc["params"]) for tc in top_combos]
     return run_sweep_phase(
         mode,
         prompts,

@@ -22,7 +22,7 @@ LLM Sampling Tuner is an automated parameter sweep pipeline that:
 
 1. **Sends diverse test prompts** to your model through any OpenAI-compatible API
 2. **Grades every response** using heuristic analysis and actual code execution
-3. **Sweeps the parameter space** across temperature, top_p, top_k, min_p, and repeat_penalty
+3. **Sweeps the parameter space** across temperature, top_p, top_k, min_p, repeat_penalty, and presence_penalty
 4. **Treats reasoning mode as a first-class axis** so you can compare direct-answer vs bounded-thinking profiles
 5. **Accounts for stochastic variance** by running multiple samples per configuration
 6. **Produces a ranked report** of strong candidate settings, broken down by task type
@@ -142,6 +142,12 @@ consume the entire response.
 For vLLM, `thinking_token_budget` is sent as a top-level sampling parameter;
 `chat_template_kwargs` is reserved for template switches such as
 `enable_thinking`.
+Sampling requests send OpenAI-standard fields (`temperature`, `top_p`,
+`presence_penalty`) directly and provider extension fields (`top_k`, `min_p`,
+`repeat_penalty`, `repetition_penalty`) in the JSON request body. The repeat
+penalty aliases are always sent with the same value for vLLM and llama.cpp
+compatibility. `presence_penalty` defaults to `1.50`; override it in a
+`--param-file` combo when needed.
 
 ### 3. Run a full coarse sweep (~12–14 hours per mode)
 
@@ -328,7 +334,7 @@ SCORING_WEIGHTS = {
 
 ### Adjusting the parameter grid
 
-Modify `PARAM_COMBOS_STRATEGIC` in `config.py` or `FOCUSED_COMBOS` in `run_coarse.py` to test different regions of the parameter space.
+Modify `PARAM_COMBOS_STRATEGIC` in `config.py`, `FOCUSED_COMBOS` in `run_coarse.py`, or pass `--param-file` to test different regions of the parameter space.
 
 ---
 

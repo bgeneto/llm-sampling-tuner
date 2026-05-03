@@ -26,13 +26,17 @@ def get_reasoning_profile(result: dict) -> str:
 def format_combo(params: dict) -> str:
     """Compact combo string for terminal reporting."""
     params = normalize_reasoning_params(params)
+    repeat_penalty = params.get("repeat_penalty", params.get("repetition_penalty"))
+    presence_penalty = params.get("presence_penalty")
+    presence_str = f"{presence_penalty:.2f}" if presence_penalty is not None else "untracked"
     parts = [
         f"profile={params.get('reasoning_profile', 'unprofiled')}",
         f"T={params['temperature']:.2f}",
         f"top_p={params['top_p']:.2f}",
         f"top_k={params['top_k']}",
         f"min_p={params['min_p']:.3f}",
-        f"rep={params['repeat_penalty']:.2f}",
+        f"rep={repeat_penalty:.2f}",
+        f"presence={presence_str}",
     ]
     budget = params.get("thinking_token_budget")
     if budget is not None:
@@ -164,7 +168,15 @@ def generate_report(mode: str):
 
     # ── Parameter sensitivity ──
     print(f"\n  PARAMETER SENSITIVITY ANALYSIS:")
-    for param in ["reasoning_profile", "temperature", "top_p", "top_k", "min_p", "repeat_penalty"]:
+    for param in [
+        "reasoning_profile",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "repeat_penalty",
+        "presence_penalty",
+    ]:
         sa = sensitivity_analysis(valid, param)
         if len(sa) <= 1:
             continue
@@ -281,4 +293,5 @@ if __name__ == "__main__":
                 print(f"    top_k:          {p['top_k']}")
                 print(f"    min_p:          {p['min_p']}")
                 print(f"    repeat_penalty: {p['repeat_penalty']}")
+                print(f"    presence_penalty: {p.get('presence_penalty', 'untracked')}")
                 print(f"    thinking_token_budget: {p.get('thinking_token_budget')}")

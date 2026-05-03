@@ -11,10 +11,12 @@ import re
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CHANGE THESE VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
-API_BASE  = "http://192.168.61.9:4000/v1"                           # OpenAI-compatible endpoint
-MODEL_ID  = "FUPiA"      # exact model ID served by the endpoint
-API_KEY   = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")  # optional bearer token for protected endpoints
-MAX_CTX   = 65536                                                # context window (tokens)
+API_BASE = "http://192.168.61.9:4000/v1"  # OpenAI-compatible endpoint
+MODEL_ID = "FUPiA"  # exact model ID served by the endpoint
+API_KEY = os.getenv("LLM_API_KEY") or os.getenv(
+    "OPENAI_API_KEY"
+)  # optional bearer token for protected endpoints
+MAX_CTX = 65536  # context window (tokens)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Repetitions per (prompt, param_combo) to handle stochastic variance ──
@@ -70,6 +72,8 @@ DEFAULT_REASONING_PROFILES = ["non_thinking"]
 
 # ── Sweep execution controls ──
 DEFAULT_PARALLEL_REQUESTS = 2
+DEFAULT_PRESENCE_PENALTY = 1.50
+DEFAULT_REPEAT_PENALTY = 1.0
 
 # ── Qwen3 reference presets ──
 QWEN3_RECOMMENDED_COMBOS = {
@@ -78,6 +82,7 @@ QWEN3_RECOMMENDED_COMBOS = {
         "top_p": 0.95,
         "top_k": 20,
         "min_p": 0.0,
+        "presence_penalty": 1.5,
         "repeat_penalty": 1.0,
     },
     "thinking_coding": {
@@ -85,6 +90,7 @@ QWEN3_RECOMMENDED_COMBOS = {
         "top_p": 0.95,
         "top_k": 20,
         "min_p": 0.0,
+        "presence_penalty": 0.0,
         "repeat_penalty": 1.0,
     },
     "instruct": {
@@ -92,6 +98,7 @@ QWEN3_RECOMMENDED_COMBOS = {
         "top_p": 0.80,
         "top_k": 20,
         "min_p": 0.0,
+        "presence_penalty": 1.5,
         "repeat_penalty": 1.0,
     },
 }
@@ -101,119 +108,662 @@ QWEN3_RECOMMENDED_COMBOS = {
 # that cover the parameter space efficiently: ~100 combos
 PARAM_COMBOS_STRATEGIC = [
     # Greedy baseline (temp=0 makes top_p/k/min_p irrelevant)
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.05},
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
-    {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.15},
-
+    {
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.05,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.1,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.15,
+        "presence_penalty": 1.5,
+    },
     # Bridge temp (0.7) — explicitly cover the gap between 0.6 and 0.8
-    {"temperature": 0.7, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.7, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 60, "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 0.95, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-
+    {
+        "temperature": 0.7,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.85,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 60,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 60,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+        "presence_penalty": 1.5,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+    },
+    {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+        "presence_penalty": 1.5,
+    },
     # Medium-low temp (0.4) — the "sweet spot" region to explore densely
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 20, "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.85, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 0.95, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-
+    {"temperature": 0.4, "top_p": 0.7, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
+    {
+        "temperature": 0.4,
+        "top_p": 0.7,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.7,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.7,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.7,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.80,
+        "top_k": 20,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.85,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.80,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.85,
+        "top_k": 60,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "top_k": 60,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {"temperature": 0.4, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
+    {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {"temperature": 0.4, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.0},
+    {"temperature": 0.4, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
     # Medium temp (0.6) — balanced creativity/coherence
-    {"temperature": 0.6, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.85, "top_k": 60, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 0.95, "top_k": 60, "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-
+    {
+        "temperature": 0.6,
+        "top_p": 0.7,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.7,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.7,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.80,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.85,
+        "top_k": 60,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 60,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {"temperature": 0.6, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.0},
+    {"temperature": 0.6, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
     # Medium-high temp (0.8) — more creative, higher derail risk
-    {"temperature": 0.8, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.7,  "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 20, "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.85, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.80, "top_k": 60, "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 0.8, "top_p": 0.95, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 0.8, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-
+    {
+        "temperature": 0.8,
+        "top_p": 0.7,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.7,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.80,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.85,
+        "top_k": 20,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.80,
+        "top_k": 60,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 0.8,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {"temperature": 0.8, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
     # High temp (1.0) — maximum creativity, strong guardrails needed
-    {"temperature": 1.0, "top_p": 0.7,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.7,  "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-    {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
-    {"temperature": 1.0, "top_p": 0.80, "top_k": 60, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
-    {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-    {"temperature": 1.0, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
+    {"temperature": 1.0, "top_p": 0.7, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
+    {
+        "temperature": 1.0,
+        "top_p": 0.7,
+        "top_k": 20,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.05,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.80,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.85,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.15,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.80,
+        "top_k": 60,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.15,
+    },
+    {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
+    {"temperature": 1.0, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
+    {
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.15,
+    },
 ]
 
 # ── Focused grids per mode (used after coarse sweep narrows regions) ──
 # These will be populated by analysis phase
 PARAM_GRID_PLANNER_FINE = {}
 PARAM_GRID_CODER_FINE = {}
+
 
 # ── Sensible combo pruning: not all combos are worth testing ──
 # Skip combos where temp=0 and top_p/top_k/min_p vary (greedy is deterministic)
@@ -263,7 +813,30 @@ def normalize_reasoning_params(params):
     """Return a shallow copy of params with canonical reasoning profile names."""
     normalized = dict(params)
     if "reasoning_profile" in normalized:
-        normalized["reasoning_profile"] = normalize_reasoning_profile(normalized["reasoning_profile"])
+        normalized["reasoning_profile"] = normalize_reasoning_profile(
+            normalized["reasoning_profile"]
+        )
+    return normalized
+
+
+def normalize_request_params(params):
+    """Return params with request defaults and provider-compatible aliases."""
+    normalized = normalize_reasoning_params(params)
+    if normalized.get("presence_penalty") is None:
+        normalized["presence_penalty"] = DEFAULT_PRESENCE_PENALTY
+
+    repeat_penalty = normalized.get("repeat_penalty")
+    repetition_penalty = normalized.get("repetition_penalty")
+    if repeat_penalty is None and repetition_penalty is None:
+        repeat_penalty = DEFAULT_REPEAT_PENALTY
+    elif repeat_penalty is None:
+        repeat_penalty = repetition_penalty
+    elif repetition_penalty is not None and repeat_penalty != repetition_penalty:
+        raise ValueError(
+            "repeat_penalty and repetition_penalty must match when both are provided"
+        )
+    normalized["repeat_penalty"] = repeat_penalty
+    normalized["repetition_penalty"] = repeat_penalty
     return normalized
 
 
@@ -278,7 +851,11 @@ def resolve_reasoning_profiles(reasoning_profiles=None, thinking_token_budget=No
     for name in raw_profile_names:
         normalized = normalize_reasoning_profile(name)
         dynamic_budget = parse_dynamic_thinking_profile(normalized)
-        if budget is not None and dynamic_budget is not None and dynamic_budget != budget:
+        if (
+            budget is not None
+            and dynamic_budget is not None
+            and dynamic_budget != budget
+        ):
             raise ValueError(
                 f"Profile {normalized} conflicts with --thinking-token-budget={budget}"
             )
@@ -287,16 +864,21 @@ def resolve_reasoning_profiles(reasoning_profiles=None, thinking_token_budget=No
             seen.add(normalized)
 
     missing = [
-        name for name in profile_names
-        if name not in REASONING_PROFILES and parse_dynamic_thinking_profile(name) is None
+        name
+        for name in profile_names
+        if name not in REASONING_PROFILES
+        and parse_dynamic_thinking_profile(name) is None
     ]
     if missing:
         known = ", ".join(sorted(REASONING_PROFILES)) + ", thinking_<N>"
         missing_str = ", ".join(missing)
-        raise ValueError(f"Unknown reasoning profile(s): {missing_str}. Known profiles: {known}")
+        raise ValueError(
+            f"Unknown reasoning profile(s): {missing_str}. Known profiles: {known}"
+        )
 
     requires_budget = [
-        name for name in profile_names
+        name
+        for name in profile_names
         if REASONING_PROFILES.get(name, {}).get("requires_thinking_token_budget")
     ]
     if requires_budget and budget is None:
@@ -308,7 +890,11 @@ def resolve_reasoning_profiles(reasoning_profiles=None, thinking_token_budget=No
         has_budgeted_profile = any(
             name in requires_budget
             or parse_dynamic_thinking_profile(name) is not None
-            or bool((REASONING_PROFILES.get(name, {}).get("chat_template_kwargs") or {}).get("enable_thinking"))
+            or bool(
+                (
+                    REASONING_PROFILES.get(name, {}).get("chat_template_kwargs") or {}
+                ).get("enable_thinking")
+            )
             for name in profile_names
         )
         if not has_budgeted_profile:
@@ -340,18 +926,24 @@ def resolve_reasoning_profile_config(profile_name, thinking_token_budget=None):
         profile["thinking_token_budget"] = budget
         return f"thinking_{budget}", profile
 
-    if cli_budget is not None and (profile.get("chat_template_kwargs") or {}).get("enable_thinking"):
+    if cli_budget is not None and (profile.get("chat_template_kwargs") or {}).get(
+        "enable_thinking"
+    ):
         profile["thinking_token_budget"] = cli_budget
         return f"thinking_{cli_budget}", profile
 
     return profile_name, profile
 
 
-def expand_param_combos(param_combos, reasoning_profiles=None, thinking_token_budget=None):
+def expand_param_combos(
+    param_combos, reasoning_profiles=None, thinking_token_budget=None
+):
     """Cross product sampling combos with the selected reasoning profiles."""
     expanded = []
     for combo in param_combos:
-        for profile_name in resolve_reasoning_profiles(reasoning_profiles, thinking_token_budget):
+        for profile_name in resolve_reasoning_profiles(
+            reasoning_profiles, thinking_token_budget
+        ):
             profile_name, profile = resolve_reasoning_profile_config(
                 profile_name,
                 thinking_token_budget,
@@ -359,37 +951,40 @@ def expand_param_combos(param_combos, reasoning_profiles=None, thinking_token_bu
             expanded_combo = dict(combo)
             expanded_combo["reasoning_profile"] = profile_name
             expanded_combo["chat_template_kwargs"] = profile.get("chat_template_kwargs")
-            expanded_combo["thinking_token_budget"] = profile.get("thinking_token_budget")
+            expanded_combo["thinking_token_budget"] = profile.get(
+                "thinking_token_budget"
+            )
             expanded_combo["use_reasoning_as_response"] = profile.get(
                 "use_reasoning_as_response",
                 DEFAULT_USE_REASONING_AS_RESPONSE,
             )
-            expanded.append(expanded_combo)
+            expanded.append(normalize_request_params(expanded_combo))
     return expanded
+
 
 # ── Scoring weights by mode ──
 SCORING_WEIGHTS = {
     "planner": {
-        "structure":       0.10,  # Formatting matters, but less than substance
-        "completeness":    0.24,  # Covers all aspects of the problem
-        "actionability":   0.24,  # Steps are concrete and executable
-        "coherence":       0.15,  # Logical flow, no contradictions
-        "conciseness":     0.10,  # Not bloated or repetitive
-        "no_hallucination": 0.17, # Doesn't invent APIs/tools/constraints
+        "structure": 0.10,  # Formatting matters, but less than substance
+        "completeness": 0.24,  # Covers all aspects of the problem
+        "actionability": 0.24,  # Steps are concrete and executable
+        "coherence": 0.15,  # Logical flow, no contradictions
+        "conciseness": 0.10,  # Not bloated or repetitive
+        "no_hallucination": 0.17,  # Doesn't invent APIs/tools/constraints
     },
     "coder": {
-        "correctness":     0.30,  # Code would actually work
-        "completeness":    0.15,  # Handles edge cases, full solution
-        "code_quality":    0.15,  # Clean, idiomatic, no smells
-        "follows_spec":    0.15,  # Does what was asked, not more/less
-        "no_hallucination": 0.15, # Doesn't invent APIs/libs/syntax
-        "parseable":       0.10,  # Valid syntax, extractable code blocks
+        "correctness": 0.30,  # Code would actually work
+        "completeness": 0.15,  # Handles edge cases, full solution
+        "code_quality": 0.15,  # Clean, idiomatic, no smells
+        "follows_spec": 0.15,  # Does what was asked, not more/less
+        "no_hallucination": 0.15,  # Doesn't invent APIs/libs/syntax
+        "parseable": 0.10,  # Valid syntax, extractable code blocks
     },
 }
 
 # ── Stability scoring (across N samples of same prompt+params) ──
 STABILITY_WEIGHTS = {
-    "consistency":  0.40,  # How similar are N runs to each other
-    "no_derail":    0.30,  # None of N runs went off the rails
+    "consistency": 0.40,  # How similar are N runs to each other
+    "no_derail": 0.30,  # None of N runs went off the rails
     "best_quality": 0.30,  # Quality of the best run in the set
 }

@@ -26,8 +26,8 @@ sys.path.insert(0, '.')
 
 from config import (DEFAULT_PARALLEL_REQUESTS, DEFAULT_REASONING_PROFILES,
                     DEFAULT_USE_REASONING_AS_RESPONSE, QWEN3_RECOMMENDED_COMBOS,
-                    expand_param_combos, resolve_reasoning_profile_config,
-                    resolve_reasoning_profiles)
+                    expand_param_combos, normalize_request_params,
+                    resolve_reasoning_profile_config, resolve_reasoning_profiles)
 from prompts.coder_prompts import CODER_PROMPTS
 from prompts.planner_prompts import PLANNER_PROMPTS
 from runner import (analyze_coarse_results, format_param_combo, param_hash,
@@ -129,7 +129,7 @@ def enrich_combos_with_profiles(combos: list[dict], reasoning_profiles: list[str
                 "use_reasoning_as_response",
                 DEFAULT_USE_REASONING_AS_RESPONSE,
             )
-            enriched.append(enriched_combo)
+            enriched.append(normalize_request_params(enriched_combo))
     return enriched
 
 
@@ -155,7 +155,15 @@ def load_param_combos_from_file(param_file: str | None) -> tuple[list[dict] | No
         if not isinstance(entry, dict):
             raise ValueError(f"Each entry in {file_path} must be a JSON object")
         # Require at least one of the core params
-        core_keys = {"temperature", "top_p", "top_k", "min_p", "repeat_penalty"}
+        core_keys = {
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "repeat_penalty",
+            "repetition_penalty",
+            "presence_penalty",
+        }
         if not core_keys.intersection(entry.keys()):
             raise ValueError(
                 f"Each param combo in {file_path} must include at least one of: "
@@ -346,7 +354,7 @@ def run_single_mode(mode, reasoning_profiles, parallel_requests, thinking_token_
             selected_hashes,
         )
         if loaded_combos is not None:
-            expanded_combos = loaded_combos
+            expanded_combos = [normalize_request_params(combo) for combo in loaded_combos]
             combo_source = f"analysis file {analysis_path}"
         else:
             expanded_combos = expand_param_combos(
