@@ -19,26 +19,32 @@ Total: ~7,000ish calls — feasible on local inference.
 
 import hashlib
 import json
-import os
-import sys
 import time
-import traceback
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from datetime import datetime
 from pathlib import Path
 
 import requests
 
-from config import (API_BASE, API_KEY, DEFAULT_PARALLEL_REQUESTS,
-                    DEFAULT_REASONING_PROFILES,
-                    DEFAULT_USE_REASONING_AS_RESPONSE, MAX_TOKENS_CODER,
-                    MAX_TOKENS_PLANNER, MODEL_ID, PARAM_COMBOS_STRATEGIC,
-                    QWEN3_RECOMMENDED_COMBOS, SAMPLES_PER_COMBO,
-                    expand_param_combos, normalize_reasoning_params,
-                    normalize_request_params,
-                    resolve_reasoning_profiles, should_skip)
-from grader import GradeResult, grade_coder, grade_planner, grade_stability
+from config import (
+    API_BASE,
+    API_KEY,
+    DEFAULT_PARALLEL_REQUESTS,
+    DEFAULT_REASONING_PROFILES,
+    DEFAULT_USE_REASONING_AS_RESPONSE,
+    MAX_TOKENS_CODER,
+    MAX_TOKENS_PLANNER,
+    MODEL_ID,
+    PARAM_COMBOS_STRATEGIC,
+    QWEN3_RECOMMENDED_COMBOS,
+    SAMPLES_PER_COMBO,
+    expand_param_combos,
+    normalize_reasoning_params,
+    normalize_request_params,
+    resolve_reasoning_profiles,
+    should_skip,
+)
+from grader import grade_coder, grade_planner
 from prompts.coder_prompts import CODER_PROMPTS
 from prompts.planner_prompts import PLANNER_PROMPTS
 
@@ -122,8 +128,9 @@ def resolve_request_max_tokens(answer_max_tokens: int, params: dict) -> int:
     return thinking_budget + answer_max_tokens
 
 
-def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
-                   timeout: int = 180) -> dict:
+def call_lmstudio(
+    messages: list[dict], params: dict, max_tokens: int, timeout: int = 180
+) -> dict:
     """Call LM Studio chat completions API. Returns raw response dict."""
     params = normalize_request_params(params)
     payload = {
@@ -189,7 +196,9 @@ def call_lmstudio(messages: list[dict], params: dict, max_tokens: int,
     return raw
 
 
-def extract_response_text(raw: dict, use_reasoning_as_response: bool = False) -> tuple[str, dict]:
+def extract_response_text(
+    raw: dict, use_reasoning_as_response: bool = False
+) -> tuple[str, dict]:
     """Normalize assistant message content to text and capture response metadata."""
     choices = raw.get("choices") or []
     choice = choices[0] if choices else {}
@@ -340,6 +349,8 @@ def run_sweep_phase(
             for line in f:
                 try:
                     r = json.loads(line)
+                    if not isinstance(r, dict):
+                        continue
                     key = run_key(r["prompt_id"], r["params"], r.get("sample_idx", 0))
                     if key not in target_keys:
                         ignored_existing += 1
@@ -348,24 +359,28 @@ def run_sweep_phase(
                         existing_error_keys.add(key)
                         continue
                     existing.add(key)
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError):
                     pass
         existing_errors = len(existing_error_keys - existing)
         print(f"  Resuming: {len(existing)} matching result(s) already collected")
         if existing_errors:
             print(f"  Retrying {existing_errors} previous error result(s)")
         if ignored_existing:
-            print(f"  Ignoring {ignored_existing} result(s) from other prompt/param/sample sets")
+            print(
+                f"  Ignoring {ignored_existing} result(s) from other prompt/param/sample sets"
+            )
 
     total = len(target_keys)
     done = len(existing)
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  Phase: {phase_name} | Mode: {mode}")
-    print(f"  Prompts: {len(prompts)} | Param combos: {len(param_combos)} | Samples/combo: {n_samples}")
+    print(
+        f"  Prompts: {len(prompts)} | Param combos: {len(param_combos)} | Samples/combo: {n_samples}"
+    )
     print(f"  Parallel requests: {parallel_requests}")
     print(f"  Total calls: {total} | Already done: {done} | Remaining: {total - done}")
     print(f"  Results file: {results_file}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     all_results = []
     scheduled_tasks = []
@@ -378,12 +393,14 @@ def run_sweep_phase(
                 if key in existing:
                     continue
                 call_count += 1
-                scheduled_tasks.append({
-                    "call_idx": call_count,
-                    "prompt_data": prompt_data,
-                    "params": params,
-                    "sample_idx": si,
-                })
+                scheduled_tasks.append(
+                    {
+                        "call_idx": call_count,
+                        "prompt_data": prompt_data,
+                        "params": params,
+                        "sample_idx": si,
+                    }
+                )
 
     def finalize_result(task: dict, result: dict):
         prefix = (
@@ -447,7 +464,9 @@ def run_sweep_phase(
                         "params": task["params"],
                         "prompt_id": task["prompt_data"]["id"],
                         "mode": mode,
-                        "reasoning_profile": task["params"].get("reasoning_profile", "unprofiled"),
+                        "reasoning_profile": task["params"].get(
+                            "reasoning_profile", "unprofiled"
+                        ),
                     }
                 finalize_result(task, result)
 
@@ -477,15 +496,24 @@ def analyze_coarse_results(
     with open(results_file) as f:
         for line in f:
             try:
-                results.append(json.loads(line))
-            except:
+                r = json.loads(line)
+            except json.JSONDecodeError:
                 pass
+            else:
+                if isinstance(r, dict):
+                    results.append(r)
 
     expected_keys = None
     expected_params_by_hash = {}
     expected_runs_by_hash = {}
-    if expected_prompts is not None and expected_param_combos is not None and n_samples is not None:
-        expected_keys = expected_run_keys(expected_prompts, expected_param_combos, n_samples)
+    if (
+        expected_prompts is not None
+        and expected_param_combos is not None
+        and n_samples is not None
+    ):
+        expected_keys = expected_run_keys(
+            expected_prompts, expected_param_combos, n_samples
+        )
         expected_params_by_hash = {
             param_hash(params): normalize_reasoning_params(params)
             for params in expected_param_combos
@@ -522,7 +550,8 @@ def analyze_coarse_results(
         for _prompt_id, combo_hash, _sample_idx in missing_keys:
             missing_by_hash[combo_hash] += 1
         complete_combo_count = sum(
-            1 for combo_hash, expected_n in expected_runs_by_hash.items()
+            1
+            for combo_hash, expected_n in expected_runs_by_hash.items()
             if expected_n - missing_by_hash.get(combo_hash, 0) == expected_n
         )
         incomplete_combo_count = len(expected_runs_by_hash) - complete_combo_count
@@ -541,7 +570,9 @@ def analyze_coarse_results(
                 f"across {len(missing_by_hash)} combo(s)"
             )
         if unexpected_valid:
-            print(f"  Ignored {unexpected_valid} successful result(s) outside the requested analysis set")
+            print(
+                f"  Ignored {unexpected_valid} successful result(s) outside the requested analysis set"
+            )
         if errors_matching_expected:
             print(
                 f"  Found {errors_matching_expected} error row(s) "
@@ -575,24 +606,28 @@ def analyze_coarse_results(
 
         # Combined score: mean - 0.5*std (penalize variance) + 0.1*min (reward floor)
         combined = mean - 0.5 * std + 0.1 * min_score
-        combo_scores.append({
-            "params": expected_params_by_hash.get(phash, runs[0]["params"]),
-            "param_hash": phash,
-            "mean": round(mean, 4),
-            "std": round(std, 4),
-            "min": round(min_score, 4),
-            "max": round(max_score, 4),
-            "combined": round(combined, 4),
-            "n_runs": len(runs),
-            "expected_runs": expected_n,
-            "missing_runs": max((expected_n or len(runs)) - len(runs), 0),
-            "complete": expected_n is None or len(runs) >= expected_n,
-        })
+        combo_scores.append(
+            {
+                "params": expected_params_by_hash.get(phash, runs[0]["params"]),
+                "param_hash": phash,
+                "mean": round(mean, 4),
+                "std": round(std, 4),
+                "min": round(min_score, 4),
+                "max": round(max_score, 4),
+                "combined": round(combined, 4),
+                "n_runs": len(runs),
+                "expected_runs": expected_n,
+                "missing_runs": max((expected_n or len(runs)) - len(runs), 0),
+                "complete": expected_n is None or len(runs) >= expected_n,
+            }
+        )
 
     combo_scores.sort(key=lambda x: x["combined"], reverse=True)
 
     if not combo_scores:
-        print("\n  No matching successful runs to analyze; analysis file was not updated")
+        print(
+            "\n  No matching successful runs to analyze; analysis file was not updated"
+        )
         return []
 
     # Save analysis
@@ -604,15 +639,17 @@ def analyze_coarse_results(
 
     # Print top 10
     print(f"\n  Top 10 param combos for {mode}:")
-    print(f"  {'Rank':<5} {'Combined':<10} {'Mean':<8} {'Std':<8} {'Min':<8} {'Runs':<11} {'Params'}")
-    print(f"  {'-'*94}")
+    print(
+        f"  {'Rank':<5} {'Combined':<10} {'Mean':<8} {'Std':<8} {'Min':<8} {'Runs':<11} {'Params'}"
+    )
+    print(f"  {'-' * 94}")
     for i, cs in enumerate(combo_scores[:10]):
         p = cs["params"]
         param_str = format_param_combo(p)
         expected_n = cs.get("expected_runs")
         run_str = f"{cs['n_runs']}/{expected_n}" if expected_n else str(cs["n_runs"])
         print(
-            f"  {i+1:<5} {cs['combined']:<10.4f} {cs['mean']:<8.4f} "
+            f"  {i + 1:<5} {cs['combined']:<10.4f} {cs['mean']:<8.4f} "
             f"{cs['std']:<8.4f} {cs['min']:<8.4f} {run_str:<11} {param_str}"
         )
 
@@ -623,17 +660,18 @@ def generate_fine_grid(top_combo: dict, step_sizes: dict | None = None) -> list[
     """Generate a fine grid around a top combo with ±deltas."""
     if step_sizes is None:
         step_sizes = {
-            "temperature": [-.05, 0, .05, .1],
-            "top_p":       [-.05, 0, .05],
-            "top_k":       [-5, 0, 5, 10],
-            "min_p":       [-.02, 0, .02],
-            "repeat_penalty": [-.02, 0, .02],
+            "temperature": [-0.05, 0, 0.05, 0.1],
+            "top_p": [-0.05, 0, 0.05],
+            "top_k": [-5, 0, 5, 10],
+            "min_p": [-0.02, 0, 0.02],
+            "repeat_penalty": [-0.02, 0, 0.02],
         }
 
     base = normalize_request_params(top_combo["params"])
     combos = []
 
     import itertools
+
     keys = list(step_sizes.keys())
     stepped_keys = set(keys)
     if "repeat_penalty" in stepped_keys:
@@ -673,9 +711,13 @@ def generate_fine_grid(top_combo: dict, step_sizes: dict | None = None) -> list[
 
 # ── Main entry points ──
 
-def run_coarse(mode: str, reasoning_profiles: list[str] | None = None,
-               parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
-               thinking_token_budget: int | None = None):
+
+def run_coarse(
+    mode: str,
+    reasoning_profiles: list[str] | None = None,
+    parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
+    thinking_token_budget: int | None = None,
+):
     """Phase 1: Coarse sweep with 3 representative prompts using strategic combos."""
     if mode == "planner":
         # Pick 1 hard arch + 1 medium debug + 1 feature as representatives
@@ -703,8 +745,11 @@ def run_coarse(mode: str, reasoning_profiles: list[str] | None = None,
     )
 
 
-def run_focused(mode: str, top_combos: list[dict],
-                parallel_requests: int = DEFAULT_PARALLEL_REQUESTS):
+def run_focused(
+    mode: str,
+    top_combos: list[dict],
+    parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
+):
     """Phase 2: Test top combos on ALL prompts with full sampling."""
     prompts = PLANNER_PROMPTS if mode == "planner" else CODER_PROMPTS
     param_list = [normalize_request_params(tc["params"]) for tc in top_combos]
@@ -718,8 +763,11 @@ def run_focused(mode: str, top_combos: list[dict],
     )
 
 
-def run_fine(mode: str, top_combo: dict,
-             parallel_requests: int = DEFAULT_PARALLEL_REQUESTS):
+def run_fine(
+    mode: str,
+    top_combo: dict,
+    parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
+):
     """Phase 3: Fine grid around the best combo."""
     prompts = PLANNER_PROMPTS if mode == "planner" else CODER_PROMPTS
     fine_combos = generate_fine_grid(top_combo)
@@ -734,9 +782,12 @@ def run_fine(mode: str, top_combo: dict,
     )
 
 
-def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
-                  parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
-                  thinking_token_budget: int | None = None):
+def run_quickscan(
+    mode: str,
+    reasoning_profiles: list[str] | None = None,
+    parallel_requests: int = DEFAULT_PARALLEL_REQUESTS,
+    thinking_token_budget: int | None = None,
+):
     """Low-cost scan that trades breadth for faster directional feedback.
 
     Planner stays minimal.
@@ -747,52 +798,238 @@ def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
         n_samples = 1
         combos = [
             # Greedy
-            {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
-            {"temperature": 0.0, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.1},
+            {
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "top_k": 0,
+                "min_p": 0.0,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "top_k": 0,
+                "min_p": 0.0,
+                "repeat_penalty": 1.1,
+            },
             # Bridge temp
             dict(QWEN3_RECOMMENDED_COMBOS["instruct"]),
-            {"temperature": 0.7, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-            {"temperature": 0.7, "top_p": 0.95, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.0},
-            {"temperature": 0.7, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
+            {
+                "temperature": 0.7,
+                "top_p": 0.85,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 10,
+                "min_p": 0.05,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.0,
+            },
             # Med-low
-            {"temperature": 0.4, "top_p": 0.7,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-            {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-            {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-            {"temperature": 0.4, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-            {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-            {"temperature": 0.4, "top_p": 0.80, "top_k": 10, "min_p": 0.05, "repeat_penalty": 1.05},
-            {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
-            {"temperature": 0.4, "top_p": 0.95, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.1},
-            {"temperature": 0.4, "top_p": 1.0,  "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+            {
+                "temperature": 0.4,
+                "top_p": 0.7,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.80,
+                "top_k": 0,
+                "min_p": 0.0,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.85,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.80,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.85,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.80,
+                "top_k": 10,
+                "min_p": 0.05,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.95,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.95,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.1,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 1.0,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.0,
+            },
             # Medium
             dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
-            {"temperature": 0.6, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-            {"temperature": 0.6, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-            {"temperature": 0.6, "top_p": 0.95, "top_k": 10,  "min_p": 0.05, "repeat_penalty": 1.05},
-            {"temperature": 0.6, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.0},
-            {"temperature": 0.6, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
+            {
+                "temperature": 0.6,
+                "top_p": 0.80,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.6,
+                "top_p": 0.85,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.6,
+                "top_p": 0.95,
+                "top_k": 10,
+                "min_p": 0.05,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.6,
+                "top_p": 0.95,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.6,
+                "top_p": 1.0,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.05,
+            },
             # Med-high
-            {"temperature": 0.8, "top_p": 0.80, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.05},
-            {"temperature": 0.8, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-            {"temperature": 0.8, "top_p": 0.95, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.05},
-            {"temperature": 0.8, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
+            {
+                "temperature": 0.8,
+                "top_p": 0.80,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.8,
+                "top_p": 0.85,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.1,
+            },
+            {
+                "temperature": 0.8,
+                "top_p": 0.95,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.05,
+            },
+            {
+                "temperature": 0.8,
+                "top_p": 0.95,
+                "top_k": 10,
+                "min_p": 0.1,
+                "repeat_penalty": 1.1,
+            },
             # High
             dict(QWEN3_RECOMMENDED_COMBOS["default"]),
-            {"temperature": 1.0, "top_p": 0.85, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
-            {"temperature": 1.0, "top_p": 0.80, "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.1},
-            {"temperature": 1.0, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.15},
-            {"temperature": 1.0, "top_p": 1.0,  "top_k": 0,  "min_p": 0.1,  "repeat_penalty": 1.15},
+            {
+                "temperature": 1.0,
+                "top_p": 0.85,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.15,
+            },
+            {
+                "temperature": 1.0,
+                "top_p": 0.80,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.1,
+            },
+            {
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "top_k": 10,
+                "min_p": 0.1,
+                "repeat_penalty": 1.15,
+            },
+            {
+                "temperature": 1.0,
+                "top_p": 1.0,
+                "top_k": 0,
+                "min_p": 0.1,
+                "repeat_penalty": 1.15,
+            },
         ]
     else:
         quickscan_prompt_ids = {"code_algo_01", "code_fix_02", "code_spec_02"}
         prompts = [p for p in CODER_PROMPTS if p["id"] in quickscan_prompt_ids]
         n_samples = 2
         combos = [
-            {"temperature": 0.0, "top_p": 1.0, "top_k": 0,  "min_p": 0.0,  "repeat_penalty": 1.0},
-            {"temperature": 0.4, "top_p": 0.85, "top_k": 0,  "min_p": 0.05, "repeat_penalty": 1.0},
+            {
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "top_k": 0,
+                "min_p": 0.0,
+                "repeat_penalty": 1.0,
+            },
+            {
+                "temperature": 0.4,
+                "top_p": 0.85,
+                "top_k": 0,
+                "min_p": 0.05,
+                "repeat_penalty": 1.0,
+            },
             dict(QWEN3_RECOMMENDED_COMBOS["thinking_coding"]),
-            {"temperature": 0.8, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.1},
-            {"temperature": 1.0, "top_p": 0.95, "top_k": 10, "min_p": 0.1,  "repeat_penalty": 1.15},
+            {
+                "temperature": 0.8,
+                "top_p": 0.95,
+                "top_k": 10,
+                "min_p": 0.1,
+                "repeat_penalty": 1.1,
+            },
+            {
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "top_k": 10,
+                "min_p": 0.1,
+                "repeat_penalty": 1.15,
+            },
         ]
     expanded = expand_param_combos(
         combos,
@@ -817,18 +1054,44 @@ def run_quickscan(mode: str, reasoning_profiles: list[str] | None = None,
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Devstral Parameter Tuning Runner")
-    parser.add_argument("phase", choices=["quickscan", "coarse", "analyze_coarse", "focused", "fine", "full"],
-                        help="Which phase to run")
-    parser.add_argument("--mode", choices=["planner", "coder", "both"], default="both",
-                        help="Which mode to benchmark")
-    parser.add_argument("--top-n", type=int, default=10, help="Top N combos for focused phase")
-    parser.add_argument("--reasoning-profiles",
-                        help="Comma-separated reasoning profile names from config.REASONING_PROFILES")
-    parser.add_argument("--thinking-token-budget", type=int,
-                        help="Custom thinking budget. Use with thinking_custom or profiles like thinking_<N>")
-    parser.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL_REQUESTS,
-                        help="Number of concurrent requests to keep in flight")
+    parser.add_argument(
+        "phase",
+        choices=[
+            "quickscan",
+            "coarse",
+            "analyze_coarse",
+            "focused",
+            "fine",
+            "full",
+        ],
+        help="Which phase to run",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["planner", "coder", "both"],
+        default="both",
+        help="Which mode to benchmark",
+    )
+    parser.add_argument(
+        "--top-n", type=int, default=10, help="Top N combos for focused phase"
+    )
+    parser.add_argument(
+        "--reasoning-profiles",
+        help="Comma-separated reasoning profile names from config.REASONING_PROFILES",
+    )
+    parser.add_argument(
+        "--thinking-token-budget",
+        type=int,
+        help="Custom thinking budget. Use with thinking_custom or profiles like thinking_<N>",
+    )
+    parser.add_argument(
+        "--parallel",
+        type=int,
+        default=DEFAULT_PARALLEL_REQUESTS,
+        help="Number of concurrent requests to keep in flight",
+    )
     args = parser.parse_args()
 
     try:
@@ -872,7 +1135,7 @@ if __name__ == "__main__":
 
     elif args.phase == "focused":
         for m in modes:
-            top = analyze_coarse_results(m, "coarse")[:args.top_n]
+            top = analyze_coarse_results(m, "coarse")[: args.top_n]
             if top:
                 run_focused(m, top, parallel_requests=args.parallel)
 
@@ -884,9 +1147,9 @@ if __name__ == "__main__":
 
     elif args.phase == "full":
         for m in modes:
-            print(f"\n{'#'*60}")
+            print(f"\n{'#' * 60}")
             print(f"  FULL PIPELINE: {m.upper()}")
-            print(f"{'#'*60}")
+            print(f"{'#' * 60}")
 
             print("\n>>> Phase 1: Coarse sweep")
             run_coarse(
@@ -897,7 +1160,7 @@ if __name__ == "__main__":
             )
 
             print("\n>>> Phase 2: Analyze coarse + Focused sweep")
-            top = analyze_coarse_results(m, "coarse")[:args.top_n]
+            top = analyze_coarse_results(m, "coarse")[: args.top_n]
             if top:
                 run_focused(m, top, parallel_requests=args.parallel)
 

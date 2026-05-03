@@ -19,7 +19,9 @@ RESULTS_DIR = Path("results")
 
 def get_reasoning_profile(result: dict) -> str:
     """Extract reasoning profile name from a result dict."""
-    profile = result.get("reasoning_profile") or result.get("params", {}).get("reasoning_profile", "unprofiled")
+    profile = result.get("reasoning_profile") or result.get("params", {}).get(
+        "reasoning_profile", "unprofiled"
+    )
     return normalize_reasoning_profile(profile)
 
 
@@ -28,7 +30,9 @@ def format_combo(params: dict) -> str:
     params = normalize_reasoning_params(params)
     repeat_penalty = params.get("repeat_penalty", params.get("repetition_penalty"))
     presence_penalty = params.get("presence_penalty")
-    presence_str = f"{presence_penalty:.2f}" if presence_penalty is not None else "untracked"
+    presence_str = (
+        f"{presence_penalty:.2f}" if presence_penalty is not None else "untracked"
+    )
     parts = [
         f"profile={params.get('reasoning_profile', 'unprofiled')}",
         f"T={params['temperature']:.2f}",
@@ -67,15 +71,17 @@ def build_combo_scores(results: list[dict]):
         scores = [r["grade"]["weighted_score"] for r in runs]
         mean = sum(scores) / len(scores)
         std = (sum((s - mean) ** 2 for s in scores) / len(scores)) ** 0.5
-        combo_scores.append({
-            "params": json.loads(key),
-            "mean": mean,
-            "std": std,
-            "min": min(scores),
-            "max": max(scores),
-            "combined": mean - 0.5 * std + 0.1 * min(scores),
-            "n": len(runs),
-        })
+        combo_scores.append(
+            {
+                "params": json.loads(key),
+                "mean": mean,
+                "std": std,
+                "min": min(scores),
+                "max": max(scores),
+                "combined": mean - 0.5 * std + 0.1 * min(scores),
+                "n": len(runs),
+            }
+        )
 
     combo_scores.sort(key=lambda x: x["combined"], reverse=True)
     return combo_scores, by_params
@@ -88,9 +94,12 @@ def load_results(pattern: str) -> list[dict]:
         with open(f) as fh:
             for line in fh:
                 try:
-                    results.append(json.loads(line))
-                except:
+                    result = json.loads(line)
+                except json.JSONDecodeError:
                     pass
+                else:
+                    if isinstance(result, dict):
+                        results.append(result)
     return results
 
 
@@ -106,7 +115,9 @@ def sensitivity_analysis(results: list[dict], param_name: str) -> dict:
             by_value[val].append(r["grade"]["weighted_score"])
 
     analysis = {}
-    for val, scores in sorted(by_value.items(), key=lambda item: sortable_value(item[0])):
+    for val, scores in sorted(
+        by_value.items(), key=lambda item: sortable_value(item[0])
+    ):
         mean = sum(scores) / len(scores)
         std = (sum((s - mean) ** 2 for s in scores) / len(scores)) ** 0.5
         analysis[val] = {
@@ -133,10 +144,12 @@ def generate_report(mode: str):
         print(f"No valid results for {mode}")
         return
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"  REPORT: {mode.upper()} MODE")
-    print(f"  Total results: {len(all_results)} ({len(valid)} valid, {len(all_results)-len(valid)} errors)")
-    print(f"{'='*70}")
+    print(
+        f"  Total results: {len(all_results)} ({len(valid)} valid, {len(all_results) - len(valid)} errors)"
+    )
+    print(f"{'=' * 70}")
 
     combo_scores, by_params = build_combo_scores(valid)
     profiles = sorted({get_reasoning_profile(r) for r in valid}, key=sortable_value)
@@ -151,23 +164,29 @@ def generate_report(mode: str):
     if profiles:
         print(f"\n  REASONING PROFILES OBSERVED: {', '.join(profiles)}")
 
-    print(f"\n  TOP 5 PARAMETER COMBINATIONS:")
-    print(f"  {'Rank':<5} {'Combined':<10} {'Mean±Std':<16} {'Min-Max':<14} {'N':<5} {'Parameters'}")
-    print(f"  {'-'*90}")
+    print("\n  TOP 5 PARAMETER COMBINATIONS:")
+    print(
+        f"  {'Rank':<5} {'Combined':<10} {'Mean±Std':<16} {'Min-Max':<14} {'N':<5} {'Parameters'}"
+    )
+    print(f"  {'-' * 90}")
     for i, cs in enumerate(combo_scores[:5]):
-        print(f"  {i+1:<5} {cs['combined']:<10.4f} {cs['mean']:.3f}±{cs['std']:.3f}    {cs['min']:.3f}-{cs['max']:.3f}  {cs['n']:<5} {format_combo(cs['params'])}")
+        print(
+            f"  {i + 1:<5} {cs['combined']:<10.4f} {cs['mean']:.3f}±{cs['std']:.3f}    {cs['min']:.3f}-{cs['max']:.3f}  {cs['n']:<5} {format_combo(cs['params'])}"
+        )
 
     if len(profiles) > 1:
-        print(f"\n  TOP 3 COMBINATIONS BY REASONING PROFILE:")
+        print("\n  TOP 3 COMBINATIONS BY REASONING PROFILE:")
         for profile in profiles:
             profile_valid = [r for r in valid if get_reasoning_profile(r) == profile]
             profile_scores, _ = build_combo_scores(profile_valid)
             print(f"\n  {profile}:")
             for i, cs in enumerate(profile_scores[:3]):
-                print(f"    {i+1}. combined={cs['combined']:.4f} mean={cs['mean']:.4f} n={cs['n']} {format_combo(cs['params'])}")
+                print(
+                    f"    {i + 1}. combined={cs['combined']:.4f} mean={cs['mean']:.4f} n={cs['n']} {format_combo(cs['params'])}"
+                )
 
     # ── Parameter sensitivity ──
-    print(f"\n  PARAMETER SENSITIVITY ANALYSIS:")
+    print("\n  PARAMETER SENSITIVITY ANALYSIS:")
     for param in [
         "reasoning_profile",
         "temperature",
@@ -183,7 +202,9 @@ def generate_report(mode: str):
         print(f"\n  {param}:")
         print(f"    {'Value':<10} {'Mean':<8} {'Std':<8} {'Min':<8} {'Max':<8} {'N'}")
         for val, stats in sa.items():
-            print(f"    {val:<10} {stats['mean']:<8.4f} {stats['std']:<8.4f} {stats['min']:<8.4f} {stats['max']:<8.4f} {stats['n']}")
+            print(
+                f"    {val:<10} {stats['mean']:<8.4f} {stats['std']:<8.4f} {stats['min']:<8.4f} {stats['max']:<8.4f} {stats['n']}"
+            )
 
     # ── Per-prompt breakdown for best combo ──
     if combo_scores:
@@ -204,11 +225,13 @@ def generate_report(mode: str):
                     dims[d].append(v)
 
             mean = sum(scores) / len(scores)
-            dim_str = " | ".join(f"{d}={sum(vs)/len(vs):.2f}" for d, vs in sorted(dims.items()))
+            dim_str = " | ".join(
+                f"{d}={sum(vs) / len(vs):.2f}" for d, vs in sorted(dims.items())
+            )
             print(f"    {pid:<20} score={mean:.3f} (n={len(runs)})  [{dim_str}]")
 
     # ── Speed analysis ──
-    print(f"\n  SPEED ANALYSIS:")
+    print("\n  SPEED ANALYSIS:")
     elapsed_list = [r["elapsed"] for r in valid if r.get("elapsed")]
     if elapsed_list:
         avg_time = sum(elapsed_list) / len(elapsed_list)
@@ -216,9 +239,11 @@ def generate_report(mode: str):
         print(f"    Min/Max: {min(elapsed_list):.1f}s / {max(elapsed_list):.1f}s")
 
     # ── Derail analysis ──
-    print(f"\n  DERAIL ANALYSIS (scores < 0.3):")
+    print("\n  DERAIL ANALYSIS (scores < 0.3):")
     derailed = [r for r in valid if r["grade"]["weighted_score"] < 0.3]
-    print(f"    Total derailed: {len(derailed)} / {len(valid)} ({100*len(derailed)/len(valid):.1f}%)")
+    print(
+        f"    Total derailed: {len(derailed)} / {len(valid)} ({100 * len(derailed) / len(valid):.1f}%)"
+    )
     if derailed:
         derail_by_temp = defaultdict(int)
         for r in derailed:
@@ -226,16 +251,16 @@ def generate_report(mode: str):
         print(f"    Derails by temperature: {dict(sorted(derail_by_temp.items()))}")
 
     # ── Flag analysis ──
-    print(f"\n  FLAG ANALYSIS:")
+    print("\n  FLAG ANALYSIS:")
     all_flags = defaultdict(int)
     for r in valid:
         for f in r["grade"].get("flags", []):
             all_flags[f] += 1
     if all_flags:
         for flag, count in sorted(all_flags.items(), key=lambda x: -x[1]):
-            print(f"    {flag}: {count} ({100*count/len(valid):.1f}%)")
+            print(f"    {flag}: {count} ({100 * count / len(valid):.1f}%)")
     else:
-        print(f"    No flags raised")
+        print("    No flags raised")
 
     # ── Save full report as JSON ──
     report = {
@@ -258,9 +283,13 @@ def generate_report(mode: str):
         ],
         "best_params": combo_scores[0]["params"] if combo_scores else None,
         "best_params_by_profile": {
-            profile: build_combo_scores([r for r in valid if get_reasoning_profile(r) == profile])[0][0]["params"]
+            profile: build_combo_scores(
+                [r for r in valid if get_reasoning_profile(r) == profile]
+            )[0][0]["params"]
             for profile in profiles
-            if build_combo_scores([r for r in valid if get_reasoning_profile(r) == profile])[0]
+            if build_combo_scores(
+                [r for r in valid if get_reasoning_profile(r) == profile]
+            )[0]
         },
     }
     report_file = RESULTS_DIR / f"report_{mode}.json"
@@ -273,6 +302,7 @@ def generate_report(mode: str):
 
 if __name__ == "__main__":
     import sys
+
     modes = sys.argv[1:] if len(sys.argv) > 1 else ["planner", "coder"]
     reports = {}
     for m in modes:
@@ -280,14 +310,16 @@ if __name__ == "__main__":
 
     # ── Final comparison ──
     if len(reports) == 2 and all(reports.values()):
-        print(f"\n{'='*70}")
-        print(f"  FINAL COMPARISON: PLANNER vs CODER OPTIMAL SETTINGS")
-        print(f"{'='*70}")
+        print(f"\n{'=' * 70}")
+        print("  FINAL COMPARISON: PLANNER vs CODER OPTIMAL SETTINGS")
+        print(f"{'=' * 70}")
         for mode, r in reports.items():
             if r and r.get("best_params"):
                 p = r["best_params"]
                 print(f"\n  {mode.upper()}:")
-                print(f"    reasoning_profile: {p.get('reasoning_profile', 'unprofiled')}")
+                print(
+                    f"    reasoning_profile: {p.get('reasoning_profile', 'unprofiled')}"
+                )
                 print(f"    temperature:    {p['temperature']}")
                 print(f"    top_p:          {p['top_p']}")
                 print(f"    top_k:          {p['top_k']}")

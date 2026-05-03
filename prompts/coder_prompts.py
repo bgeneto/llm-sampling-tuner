@@ -37,7 +37,7 @@ Include a `__repr__` that shows the cache contents in MRU→LRU order.
 Include 5 test cases that verify correctness including eviction behavior.""",
         "eval_notes": "Must have DLL + dict, O(1) complexity, working eviction, valid test cases.",
         "has_verifiable_output": True,
-    "reference_tests": """
+        "reference_tests": """
 cache = LRUCache(2)
 cache.put(1, 1)
 cache.put(2, 2)
@@ -58,7 +58,6 @@ assert cache.get(1) == 10
 assert cache.get(2) == -1
 """,
     },
-
     {
         "id": "code_algo_02",
         "category": "algorithm",
@@ -102,7 +101,6 @@ except ValueError:
     pass
 """,
     },
-
     {
         "id": "code_algo_03",
         "category": "algorithm",
@@ -121,7 +119,7 @@ Requirements:
 Include 5 test cases including edge cases.""",
         "eval_notes": "Must use heap with list index tracking, handle empties, correct complexity.",
         "has_verifiable_output": True,
-    "reference_tests": """
+        "reference_tests": """
 assert merge_k_sorted([[1, 4, 5], [1, 3, 4], [2, 6]]) == [1, 1, 2, 3, 4, 4, 5, 6]
 assert merge_k_sorted([]) == []
 assert merge_k_sorted([[], []]) == []
@@ -129,7 +127,6 @@ assert merge_k_sorted([[1], [], [-1, 0, 2]]) == [-1, 0, 1, 2]
 assert merge_k_sorted([[1, 1], [1]]) == [1, 1, 1]
 """,
     },
-
     # ── 2. System Code ──
     {
         "id": "code_sys_01",
@@ -152,7 +149,6 @@ Include type hints throughout.""",
         "eval_notes": "Must handle Retry-After, exponential backoff math, proper async/await, type hints.",
         "has_verifiable_output": False,
     },
-
     {
         "id": "code_sys_02",
         "category": "system",
@@ -192,7 +188,6 @@ assert future_two.done() is True
 task_queue.shutdown(wait=True)
 """,
     },
-
     # ── 3. Bug Fixing ──
     {
         "id": "code_fix_01",
@@ -244,7 +239,7 @@ print(f"A: {a.balance}, B: {b.balance}")
 Provide the corrected version with all bugs fixed.""",
         "eval_notes": "Bugs: withdraw doesn't release lock on failure, transfer causes deadlock (nested locks + withdraw re-acquires), no context managers.",
         "has_verifiable_output": True,
-    "reference_tests": """
+        "reference_tests": """
 account_a = BankAccount(100)
 account_b = BankAccount(50)
 
@@ -258,7 +253,6 @@ assert account_b.balance == 75
 assert account_a.withdraw(100) == 0
 """,
     },
-
     {
         "id": "code_fix_02",
         "category": "bugfix",
@@ -365,7 +359,6 @@ async def _reference_test_async_cache():
 asyncio.run(_reference_test_async_cache())
 """,
     },
-
     # ── 4. Code from Spec ──
     {
         "id": "code_spec_01",
@@ -404,7 +397,6 @@ for invalid in ("2 +", "1 / )", "(1 + 2"):
         pass
 """,
     },
-
     {
         "id": "code_spec_02",
         "category": "from_spec",
@@ -499,7 +491,6 @@ async def _reference_test_event_emitter():
 asyncio.run(_reference_test_event_emitter())
 """,
     },
-
     # ── 5. Refactoring ──
     {
         "id": "code_refactor_01",

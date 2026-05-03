@@ -37,7 +37,6 @@ Produce a structured plan with:
 Do NOT write code. Only produce the plan.""",
         "eval_notes": "Should have CRDT or OT mention, clear component list, dependency ordering.",
     },
-
     {
         "id": "plan_arch_02",
         "category": "architecture",
@@ -54,7 +53,6 @@ Produce: component list, lifecycle hooks, dependency resolution strategy,
 error isolation approach, and a phased implementation plan.""",
         "eval_notes": "Should address sandboxing (VM2/isolate), dependency DAG, lifecycle hooks.",
     },
-
     # ── 2. Debugging Strategy ──
     {
         "id": "plan_debug_01",
@@ -76,7 +74,6 @@ Create a systematic diagnostic plan. Include:
 Do NOT guess the answer. Produce only the investigation plan.""",
         "eval_notes": "Should mention heap snapshots, connection pool monitoring, GC analysis, query plans.",
     },
-
     {
         "id": "plan_debug_02",
         "category": "debugging",
@@ -90,7 +87,6 @@ Do NOT guess the answer. Produce only the investigation plan.""",
 Create a systematic debugging plan with hypotheses, test steps, and elimination criteria.""",
         "eval_notes": "Should consider StrictMode double-render, router remounting, Redux state persistence.",
     },
-
     # ── 3. Feature Planning ──
     {
         "id": "plan_feat_01",
@@ -113,7 +109,6 @@ Produce a plan covering:
 6. Testing strategy""",
         "eval_notes": "Should describe command pattern, tree vs linear stack, snapshot vs delta approach.",
     },
-
     {
         "id": "plan_feat_02",
         "category": "feature",
@@ -132,7 +127,6 @@ Constraints:
 Produce a phased migration plan with risk analysis and rollback strategy at each phase.""",
         "eval_notes": "Should have incremental approach, dual-stack period, schema-first strategy.",
     },
-
     # ── 4. Refactoring Strategy ──
     {
         "id": "plan_refactor_01",
@@ -154,7 +148,6 @@ into focused modules without breaking anything. Include dependency analysis,
 extraction order, and testing gates between phases.""",
         "eval_notes": "Should identify extraction order by coupling, suggest facade/adapter pattern for migration.",
     },
-
     # ── 5. Edge Case Analysis ──
     {
         "id": "plan_edge_01",
@@ -175,7 +168,6 @@ For each edge case: describe the failure mode, its impact, and your mitigation s
 Organize as a structured risk matrix.""",
         "eval_notes": "Should be comprehensive, structured as matrix, address distributed consensus.",
     },
-
     {
         "id": "plan_edge_02",
         "category": "edge_cases",

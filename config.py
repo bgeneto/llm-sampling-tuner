@@ -12,7 +12,7 @@ import re
 #  CHANGE THESE VALUES to target a different model / API endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
 API_BASE = "http://192.168.61.9:4000/v1"  # OpenAI-compatible endpoint
-MODEL_ID = "FUPiA"  # exact model ID served by the endpoint
+MODEL_ID = "Qwen3.6-35B-A3B"  # exact model ID served by the endpoint
 API_KEY = os.getenv("LLM_API_KEY") or os.getenv(
     "OPENAI_API_KEY"
 )  # optional bearer token for protected endpoints
@@ -262,7 +262,13 @@ PARAM_COMBOS_STRATEGIC = [
         "presence_penalty": 1.5,
     },
     # Medium-low temp (0.4) — the "sweet spot" region to explore densely
-    {"temperature": 0.4, "top_p": 0.7, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
+    {
+        "temperature": 0.4,
+        "top_p": 0.7,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
     {
         "temperature": 0.4,
         "top_p": 0.7,
@@ -417,7 +423,13 @@ PARAM_COMBOS_STRATEGIC = [
         "min_p": 0.05,
         "repeat_penalty": 1.0,
     },
-    {"temperature": 0.4, "top_p": 1.0, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0},
+    {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
     {
         "temperature": 0.4,
         "top_p": 1.0,
@@ -432,8 +444,20 @@ PARAM_COMBOS_STRATEGIC = [
         "min_p": 0.05,
         "repeat_penalty": 1.05,
     },
-    {"temperature": 0.4, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.0},
-    {"temperature": 0.4, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
+    {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
     # Medium temp (0.6) — balanced creativity/coherence
     {
         "temperature": 0.6,
@@ -575,8 +599,20 @@ PARAM_COMBOS_STRATEGIC = [
         "min_p": 0.05,
         "repeat_penalty": 1.05,
     },
-    {"temperature": 0.6, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.0},
-    {"temperature": 0.6, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
+    {
+        "temperature": 0.6,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.0,
+    },
+    {
+        "temperature": 0.6,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
     # Medium-high temp (0.8) — more creative, higher derail risk
     {
         "temperature": 0.8,
@@ -683,9 +719,21 @@ PARAM_COMBOS_STRATEGIC = [
         "min_p": 0.1,
         "repeat_penalty": 1.05,
     },
-    {"temperature": 0.8, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
+    {
+        "temperature": 0.8,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
     # High temp (1.0) — maximum creativity, strong guardrails needed
-    {"temperature": 1.0, "top_p": 0.7, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
+    {
+        "temperature": 1.0,
+        "top_p": 0.7,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
     {
         "temperature": 1.0,
         "top_p": 0.7,
@@ -749,7 +797,13 @@ PARAM_COMBOS_STRATEGIC = [
         "min_p": 0.1,
         "repeat_penalty": 1.1,
     },
-    {"temperature": 1.0, "top_p": 1.0, "top_k": 0, "min_p": 0.1, "repeat_penalty": 1.1},
+    {
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    },
     {
         "temperature": 1.0,
         "top_p": 1.0,
